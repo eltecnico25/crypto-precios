@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cripto Precios Ligero</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:monospace,sans-serif;background:#111;color:#eee;padding:8px;font-size:13px}
+h1{font-size:16px;margin-bottom:4px}
+.sub{color:#888;font-size:11px;margin-bottom:10px}
+.err{background:#400;color:#f88;padding:6px;margin-bottom:8px;border:1px solid #800;font-size:11px}
+input[type=text]{width:100%;padding:6px;background:#222;color:#eee;border:1px solid #444;font-family:monospace;font-size:13px;margin-bottom:4px}
+input[type=text]:focus{outline:1px solid #4a4;border-color:#4a4}
+.btn{background:#222;color:#ccc;border:1px solid #444;padding:6px 12px;cursor:pointer;font-family:monospace;font-size:12px;display:inline-block}
+.btn:hover{background:#333}
+.btn-green{color:#4a4;border-color:#4a4}
+.btn-red{color:#f44;border-color:#f44}
+.btn-full{width:100%;text-align:center;margin-bottom:4px}
+.suggestions{background:#222;border:1px solid #444;max-height:150px;overflow:auto;display:none}
+.suggestions div{padding:6px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid #333}
+.suggestions div:hover{background:#333}
+.suggestions .added{color:#666;cursor:default}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{text-align:left;color:#888;font-size:11px;font-weight:normal;padding:4px 2px;border-bottom:1px solid #333}
+th.r,td.r{text-align:right}
+td{padding:6px 2px;border-bottom:1px solid #222;font-size:12px}
+.sym{font-weight:bold;color:#fff}
+.name{color:#888;font-size:10px}
+.up{color:#4c4}
+.dn{color:#f44}
+.mono{font-family:monospace}
+.rm{background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:2px 4px}
+.rm:hover{color:#f44}
+.foot{text-align:center;margin-top:12px;border-top:1px solid #333;padding-top:8px}
+.foot button{color:#4a4;background:none;border:none;cursor:pointer;font-family:monospace;font-size:12px;text-decoration:underline}
+.foot p{color:#666;font-size:10px;margin-top:4px}
+.cfg{margin:6px 0;font-size:11px}
+.cfglist{margin:4px 0}
+.cfgitem{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #222}
+.empty{text-align:center;color:#888;padding:20px 0}
+.loading{text-align:center;color:#888;padding:30px 0}
+.cfgpanel{display:none;margin-top:6px;padding:6px;border:1px solid #333;background:#1a1a1a}
+.cfgrow{margin-bottom:6px}
+.msg{color:#4a4;font-size:11px;margin:4px 0}
+.urlinfo{background:#1a2a1a;border:1px solid #343;padding:6px;margin:6px 0;font-size:10px;color:#8a8;word-break:break-all}
+</style>
+</head>
+<body>
+<h1>&#128202; Crypto Prices</h1>
+<p class="sub">Ultraligero &middot; Actualizaci&oacute;n: <span id="time">...</span></p>
+
+<!-- Search -->
+<div>
+<input type="text" id="search" placeholder="Buscar: btc, bnb, sol...">
+<button class="btn btn-green btn-full" onclick="triggerSearch()">&#128269; Buscar</button>
+</div>
+<div class="suggestions" id="sug"></div>
+
+<!-- Config -->
+<div class="cfg">
+<button class="btn btn-full" onclick="toggleCfg()">&#128190; Configuraciones &#9660;</button>
+<div id="cfgPanel" class="cfgpanel">
+
+<p style="color:#aaa;font-size:11px;margin-bottom:6px">La lista actual se guarda autom&aacute;ticamente en la URL. Guarda esta p&aacute;gina como marcador para conservarla.</p>
+
+<div class="urlinfo" id="urlDisplay"></div>
+
+<div class="cfgrow">
+<button class="btn btn-green btn-full" onclick="copyUrl()">&#128203; Copiar URL con lista actual</button>
+</div>
+
+<div class="cfgrow">
+<button class="btn btn-full" onclick="exportCfg()">&#128229; Exportar a archivo</button>
+</div>
+
+<div class="cfgrow">
+<label class="btn btn-full" style="cursor:pointer">&#128194; Importar archivo
+<input type="file" id="fileInput" accept=".json,.txt" style="display:none" onchange="importCfg(this)">
+</label>
+</div>
+
+<div class="cfgrow">
+<button class="btn btn-red btn-full" onclick="resetDefault()">&#8635; Restaurar lista por defecto</button>
+</div>
+
+<div id="cfgMsg" class="msg"></div>
+</div>
+</div>
+
+<div id="error"></div>
+<div id="loading" class="loading">Cargando precios...</div>
+<table id="tbl" style="display:none">
+<thead>
+<tr>
+<th>Moneda</th>
+<th class="r">Precio</th>
+<th class="r">24h</th>
+<th class="r">7d</th>
+<th class="r">30d</th>
+<th class="r">Cap.</th>
+<th></th>
+</tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+<div id="empty" class="empty" style="display:none">Agrega criptomonedas usando el campo de arriba.</div>
+
+<div class="foot">
+<button onclick="fetchPrices()">&#128260; Actualizar ahora</button>
+<p>Datos: CoinGecko &middot; Auto-refresh: 60s</p>
+</div>
+
+<script>
+var DEFAULT_COINS=["bitcoin","ethereum","solana","dogecoin","cardano"];
+var tracked=[];
+var coins=[];
+
+// === URL-based persistence ===
+// Coins are stored in the URL hash: #coins=bitcoin,ethereum,solana
+// This way, saving the page/bookmark preserves the list.
+
+function readFromUrl(){
+  var h=location.hash||"";
+  if(h.indexOf("#coins=")===0){
+    var s=h.substring(7);
+    if(s.length>0){
+      return s.split(",");
+    }
+  }
+  return null;
+}
+
+function writeToUrl(){
+  if(tracked.length>0){
+    location.hash="coins="+tracked.join(",");
+  }else{
+    location.hash="";
+  }
+  updateUrlDisplay();
+}
+
+function updateUrlDisplay(){
+  var el=document.getElementById("urlDisplay");
+  if(el) el.textContent=location.href;
+}
+
+// Load: URL first, then localStorage fallback, then defaults
+function load(){
+  var fromUrl=readFromUrl();
+  if(fromUrl&&fromUrl.length>0){
+    tracked=fromUrl;
+    return;
+  }
+  try{
+    var s=localStorage.getItem("tracked_coins");
+    if(s){tracked=JSON.parse(s);return}
+  }catch(e){}
+  tracked=DEFAULT_COINS.slice();
+}
+
+function save(){
+  writeToUrl();
+  try{localStorage.setItem("tracked_coins",JSON.stringify(tracked))}catch(e){}
+}
+
+load();
+writeToUrl();
+
+// === Formatting ===
+function fmtPrice(p){return p>=1?"$"+p.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"$"+p.toFixed(6)}
+function fmtCap(c){return c>=1e12?"$"+(c/1e12).toFixed(1)+"T":c>=1e9?"$"+(c/1e9).toFixed(1)+"B":c>=1e6?"$"+(c/1e6).toFixed(1)+"M":"$"+c}
+function fmtPct(v){if(v==null)return"\u2014";var a=Math.abs(v).toFixed(1);return(v>=0?"\u25B2 ":"\u25BC ")+a+"%"}
+function pctClass(v){return v==null?"":v>=0?"up":"dn"}
+
+function showMsg(t){var el=document.getElementById("cfgMsg");el.textContent=t;setTimeout(function(){el.textContent=""},3000)}
+
+// === Fetch prices ===
+function fetchPrices(){
+  if(!tracked.length){coins=[];render();return}
+  var x=new XMLHttpRequest();
+  x.open("GET","https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids="+tracked.join(",")+"&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d,30d");
+  x.timeout=15000;
+  x.onload=function(){
+    if(x.status===200){
+      try{coins=JSON.parse(x.responseText)}catch(e){coins=[]}
+      document.getElementById("error").innerHTML="";
+      document.getElementById("time").textContent=new Date().toLocaleTimeString("es");
+    }else{
+      document.getElementById("error").innerHTML='<div class="err">Error HTTP '+x.status+'. <button onclick="fetchPrices()" style="color:#f88;background:none;border:none;text-decoration:underline;cursor:pointer;font-family:monospace">Reintentar</button></div>';
+    }
+    render();
+  };
+  x.onerror=function(){
+    document.getElementById("error").innerHTML='<div class="err">Error de conexi&oacute;n. <button onclick="fetchPrices()" style="color:#f88;background:none;border:none;text-decoration:underline;cursor:pointer;font-family:monospace">Reintentar</button></div>';
+    render();
+  };
+  x.ontimeout=function(){
+    document.getElementById("error").innerHTML='<div class="err">Timeout. <button onclick="fetchPrices()" style="color:#f88;background:none;border:none;text-decoration:underline;cursor:pointer;font-family:monospace">Reintentar</button></div>';
+    render();
+  };
+  x.send();
+}
+
+// === Render table ===
+function render(){
+  var tb=document.getElementById("tbody");
+  var tbl=document.getElementById("tbl");
+  var ld=document.getElementById("loading");
+  var em=document.getElementById("empty");
+  ld.style.display="none";
+  if(!tracked.length){tbl.style.display="none";em.style.display="block";return}
+  if(!coins.length){tbl.style.display="none";em.style.display="block";return}
+  em.style.display="none";tbl.style.display="table";
+  var h="";
+  for(var i=0;i<coins.length;i++){
+    var c=coins[i];
+    var p24=c.price_change_percentage_24h||0;
+    var p7=c.price_change_percentage_7d_in_currency;
+    var p30=c.price_change_percentage_30d_in_currency;
+    h+='<tr><td><span class="sym">'+c.symbol.toUpperCase()+'</span><br><span class="name">'+c.name+'</span></td>';
+    h+='<td class="r mono">'+fmtPrice(c.current_price)+'</td>';
+    h+='<td class="r mono '+pctClass(p24)+'">'+fmtPct(p24)+'</td>';
+    h+='<td class="r mono '+pctClass(p7)+'">'+fmtPct(p7)+'</td>';
+    h+='<td class="r mono '+pctClass(p30)+'">'+fmtPct(p30)+'</td>';
+    h+='<td class="r" style="color:#888;font-size:10px">'+fmtCap(c.market_cap)+'</td>';
+    h+='<td><button class="rm" onclick="removeCoin(\''+c.id+'\')">&#10005;</button></td></tr>';
+  }
+  tb.innerHTML=h;
+}
+
+function removeCoin(id){
+  for(var i=tracked.length-1;i>=0;i--)if(tracked[i]===id)tracked.splice(i,1);
+  save();fetchPrices();
+}
+
+// === Search ===
+function triggerSearch(){
+  var v=document.getElementById("search").value;
+  if(v.length<2){alert("Escribe al menos 2 caracteres");return}
+  doSearch(v);
+}
+
+function doSearch(q){
+  var x=new XMLHttpRequest();
+  x.open("GET","https://api.coingecko.com/api/v3/search?query="+encodeURIComponent(q));
+  x.timeout=10000;
+  x.onload=function(){
+    if(x.status===200){
+      try{
+        var d=JSON.parse(x.responseText);
+        var list=(d.coins||[]).slice(0,8);
+        var s=document.getElementById("sug");
+        var h="";
+        for(var i=0;i<list.length;i++){
+          var c=list[i];
+          var added=tracked.indexOf(c.id)>=0;
+          if(added){
+            h+='<div class="added">'+c.symbol.toUpperCase()+' - '+c.name+' &#10003;</div>';
+          }else{
+            h+='<div onclick="addCoin(\''+c.id+'\')"><b>'+c.symbol.toUpperCase()+'</b> '+c.name+'</div>';
+          }
+        }
+        s.innerHTML=h;
+        s.style.display=h?"block":"none";
+      }catch(e){}
+    }
+  };
+  x.onerror=function(){alert("Error de conexion al buscar.")};
+  x.send();
+}
+
+function addCoin(id){
+  if(tracked.indexOf(id)<0){tracked.push(id);save();fetchPrices()}
+  document.getElementById("search").value="";
+  document.getElementById("sug").style.display="none";
+}
+
+// === Config panel ===
+function toggleCfg(){
+  var p=document.getElementById("cfgPanel");
+  p.style.display=p.style.display==="none"||p.style.display===""?"block":"none";
+  updateUrlDisplay();
+}
+
+function copyUrl(){
+  var url=location.href;
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url);
+      showMsg("URL copiada al portapapeles");
+      return;
+    }
+  }catch(e){}
+  // Fallback: prompt
+  prompt("Copia esta URL (contiene tu lista de monedas):",url);
+}
+
+function resetDefault(){
+  tracked=DEFAULT_COINS.slice();
+  save();fetchPrices();
+  showMsg("Lista restaurada a valores por defecto");
+}
+
+// Export config to downloadable file
+function exportCfg(){
+  if(!tracked.length){alert("No hay monedas para exportar");return}
+  var data=JSON.stringify({name:"mi_config",coins:tracked,date:new Date().toISOString()},null,2);
+  try{
+    var blob=new Blob([data],{type:"application/json"});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");
+    a.href=url;
+    a.download="crypto_config.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showMsg("Archivo exportado");
+  }catch(e){
+    // Fallback: show in new window or prompt
+    try{
+      var w=window.open("","_blank");
+      if(w){
+        w.document.write("<pre>"+data+"</pre><p>Copia este texto y guardalo como .json</p>");
+        w.document.title="crypto_config.json";
+        showMsg("Texto en nueva ventana");
+      }else{throw 1}
+    }catch(e2){
+      prompt("Copia este JSON y guardalo como archivo:",data);
+    }
+  }
+}
+
+// Import config from file
+function importCfg(input){
+  if(!input.files||!input.files[0])return;
+  try{
+    var reader=new FileReader();
+    reader.onload=function(e){
+      try{
+        var data=JSON.parse(e.target.result);
+        var imp=null;
+        if(data&&data.coins&&data.coins.length)imp=data.coins;
+        else if(data&&data.length)imp=data;
+        if(imp){
+          tracked=imp.slice();
+          save();fetchPrices();
+          showMsg("Importado: "+imp.length+" monedas");
+        }else{
+          alert("Archivo no valido.");
+        }
+      }catch(ex){alert("JSON invalido.")}
+    };
+    reader.readAsText(input.files[0]);
+  }catch(e){
+    alert("Tu navegador no soporta lectura de archivos.");
+  }
+  input.value="";
+}
+
+// Close suggestions on click outside
+document.onclick=function(e){
+  var s=document.getElementById("sug"),inp=document.getElementById("search");
+  if(e.target!==s&&e.target!==inp&&!s.contains(e.target))s.style.display="none";
+};
+
+// Listen for hash changes (e.g. user edits URL manually)
+if(window.addEventListener){
+  window.addEventListener("hashchange",function(){
+    var fromUrl=readFromUrl();
+    if(fromUrl){tracked=fromUrl;fetchPrices()}
+  });
+}
+
+fetchPrices();
+setInterval(fetchPrices,60000);
+</script>
+</body>
+</html>
