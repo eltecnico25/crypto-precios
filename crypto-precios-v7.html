@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cripto Precios Ligero</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:monospace,sans-serif;background:#111;color:#eee;padding:8px;font-size:13px}
+h1{font-size:16px;margin-bottom:4px}
+.sub{color:#888;font-size:11px;margin-bottom:10px}
+.err{background:#400;color:#f88;padding:6px;margin-bottom:8px;border:1px solid #800;font-size:11px}
+.warn{background:#2a2400;color:#f2d479;padding:6px;margin-bottom:8px;border:1px solid #665200;font-size:11px}
+input[type=text]{width:100%;padding:6px;background:#222;color:#eee;border:1px solid #444;font-family:monospace;font-size:13px;margin-bottom:4px}
+input[type=text]:focus{outline:1px solid #4a4;border-color:#4a4}
+.btn{background:#222;color:#ccc;border:1px solid #444;padding:6px 12px;cursor:pointer;font-family:monospace;font-size:12px;display:inline-block}
+.btn:hover{background:#333}
+.btn-green{color:#4a4;border-color:#4a4}
+.btn-red{color:#f44;border-color:#f44}
+.btn-full{width:100%;text-align:center;margin-bottom:4px}
+.suggestions{background:#222;border:1px solid #444;max-height:150px;overflow:auto;display:none}
+.suggestions div{padding:6px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid #333}
+.suggestions div:hover{background:#333}
+.suggestions .added{color:#666;cursor:default}
+.suggestions .muted{color:#888}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{text-align:left;color:#888;font-size:11px;font-weight:normal;padding:4px 2px;border-bottom:1px solid #333}
+th.r,td.r{text-align:right}
+td{padding:6px 2px;border-bottom:1px solid #222;font-size:12px;vertical-align:top}
+.sym{font-weight:bold;color:#fff}
+.name{color:#888;font-size:10px}
+.up{color:#4c4}
+.dn{color:#f44}
+.mono{font-family:monospace}
+.muted{color:#777}
+.rm{background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:2px 4px}
+.rm:hover{color:#f44}
+.foot{text-align:center;margin-top:12px;border-top:1px solid #333;padding-top:8px}
+.foot button{color:#4a4;background:none;border:none;cursor:pointer;font-family:monospace;font-size:12px;text-decoration:underline}
+.foot p{color:#666;font-size:10px;margin-top:4px}
+.cfg{margin:6px 0;font-size:11px}
+.empty{text-align:center;color:#888;padding:20px 0}
+.loading{text-align:center;color:#888;padding:30px 0}
+.cfgpanel{display:none;margin-top:6px;padding:6px;border:1px solid #333;background:#1a1a1a}
+.cfgrow{margin-bottom:6px}
+.msg{color:#4a4;font-size:11px;margin:4px 0}
+.urlinfo{background:#1a2a1a;border:1px solid #343;padding:6px;margin:6px 0;font-size:10px;color:#8a8;word-break:break-all}
+.pctinfo{font-size:10px;color:#686;text-align:center;margin-top:4px;line-height:1.4}
+</style>
+</head>
+<body>
+<h1>&#128202; Crypto Prices</h1>
+<p class="sub">Ultraligero &middot; Actualizaci&oacute;n: <span id="time">...</span></p>
+
+<div>
+<input type="text" id="search" placeholder="Buscar: btc, bnb, sol...">
+<button class="btn btn-green btn-full" onclick="triggerSearch()">&#128269; Buscar</button>
+</div>
+<div class="suggestions" id="sug"></div>
+
+<div class="cfg">
+<button class="btn btn-full" onclick="toggleCfg()">&#128190; Configuraciones &#9660;</button>
+<div id="cfgPanel" class="cfgpanel">
+<p style="color:#aaa;font-size:11px;margin-bottom:6px">La lista se guarda en la URL. Guarda como marcador para conservarla.</p>
+<div class="urlinfo" id="urlDisplay"></div>
+<div class="cfgrow"><button class="btn btn-green btn-full" onclick="copyUrl()">&#128203; Copiar URL con lista actual</button></div>
+<div class="cfgrow"><button class="btn btn-full" onclick="exportCfg()">&#128229; Exportar a archivo</button></div>
+<div class="cfgrow">
+<label class="btn btn-full" style="cursor:pointer">&#128194; Importar archivo
+<input type="file" id="fileInput" accept=".json,.txt" style="display:none" onchange="importCfg(this)">
+</label>
+</div>
+<div class="cfgrow"><button class="btn btn-red btn-full" onclick="resetDefault()">&#8635; Restaurar lista por defecto</button></div>
+<div id="cfgMsg" class="msg"></div>
+</div>
+</div>
+
+<div id="error"></div>
+<div id="warn"></div>
+<div id="loading" class="loading">Cargando precios...</div>
+<table id="tbl" style="display:none">
+<thead><tr>
+<th>Moneda</th><th class="r">Precio</th><th class="r">24h</th><th class="r">7d</th><th class="r">30d</th><th class="r">Cap.</th><th></th>
+</tr></thead>
+<tbody id="tbody"></tbody>
+</table>
+<div id="empty" class="empty" style="display:none">Agrega criptomonedas usando el campo de arriba.</div>
+<p class="pctinfo" id="pctSrc"></p>
+
+<div class="foot">
+<button onclick="refresh()">&#128260; Actualizar ahora</button>
+<p>Datos: CoinGecko &middot; Auto-refresh: 60s</p>
+</div>
+
+<script>
+var DEFAULT_SYMS=["btc","eth","sol","doge","ada"];
+var s2i={
+  "btc":"bitcoin","eth":"ethereum","sol":"solana","doge":"dogecoin","ada":"cardano",
+  "bnb":"binancecoin","xrp":"ripple","dot":"polkadot","avax":"avalanche-2","matic":"matic-network",
+  "link":"chainlink","uni":"uniswap","ltc":"litecoin","atom":"cosmos","xlm":"stellar",
+  "shib":"shiba-inu","trx":"tron","near":"near","apt":"aptos","sui":"sui",
+  "pepe":"pepe","arb":"arbitrum","op":"optimism","fil":"filecoin","ton":"the-open-network",
+  "etc":"ethereum-classic","hbar":"hedera-hashgraph","cro":"crypto-com-chain","vet":"vechain",
+  "algo":"algorand","aave":"aave","inj":"injective-protocol","rndr":"render-token"
+};
+var tracked=[];
+var coins=[];
+var histPct={};
+var unresolved=[];
+var selfHash=false;
+var runId=0;
+var marketReq=null;
+var historyReq=null;
+var resolveReq=null;
+var pendingTimer=0;
+var loading=false;
+
+function normalizeSym(v){
+  if(v==null)return "";
+  return String(v).toLowerCase().replace(/[^a-z0-9]/g,"");
+}
+
+function uniqueSyms(list){
+  var out=[],seen={},i,s;
+  if(!list)return out;
+  for(i=0;i<list.length;i++){
+    s=normalizeSym(list[i]);
+    if(s && !seen[s]){seen[s]=1;out.push(s);}
+  }
+  return out;
+}
+
+function listContains(list,val){
+  var i;
+  for(i=0;i<list.length;i++) if(list[i]===val) return true;
+  return false;
+}
+
+function mergeUnique(a,b){
+  var out=[],seen={},i,v;
+  a=a||[];b=b||[];
+  for(i=0;i<a.length;i++){v=a[i];if(!seen[v]){seen[v]=1;out.push(v);}}
+  for(i=0;i<b.length;i++){v=b[i];if(!seen[v]){seen[v]=1;out.push(v);}}
+  return out;
+}
+
+function readFromUrl(){
+  var h=location.hash||"";
+  if(h.length<=1) return null;
+  var s=h.substring(1);
+  if(s.indexOf("c=")===0) s=s.substring(2);
+  if(s.indexOf("coins=")===0) s=s.substring(6);
+  if(!s) return [];
+  return uniqueSyms(s.split(","));
+}
+
+function updateUrlDisplay(){
+  var el=document.getElementById("urlDisplay");
+  if(el) el.textContent=location.href;
+}
+
+function writeToUrl(){
+  var hash=tracked.length?"#"+tracked.join(","):"";
+  selfHash=true;
+  try{
+    if(window.history && history.replaceState){
+      history.replaceState(null,document.title,location.href.split("#")[0]+hash);
+    }else{
+      location.hash=tracked.join(",");
+    }
+  }catch(e){
+    location.hash=tracked.join(",");
+  }
+  updateUrlDisplay();
+  setTimeout(function(){selfHash=false;},150);
+}
+
+function loadMappings(){
+  try{
+    var raw=localStorage.getItem("crypto_sym_map_v2");
+    if(!raw) return;
+    var saved=JSON.parse(raw),k;
+    for(k in saved) if(saved[k]) s2i[normalizeSym(k)]=saved[k];
+  }catch(e){}
+}
+
+function saveMappings(){
+  try{localStorage.setItem("crypto_sym_map_v2",JSON.stringify(s2i));}catch(e){}
+}
+
+function storeTracked(skipUrl){
+  tracked=uniqueSyms(tracked);
+  try{localStorage.setItem("tracked_syms",JSON.stringify(tracked));}catch(e){}
+  saveMappings();
+  if(skipUrl){updateUrlDisplay();}else{writeToUrl();}
+}
+
+function load(){
+  loadMappings();
+  var fromUrl=readFromUrl();
+  if(fromUrl&&fromUrl.length){tracked=fromUrl;updateUrlDisplay();return;}
+  try{
+    var raw=localStorage.getItem("tracked_syms");
+    if(raw){
+      tracked=uniqueSyms(JSON.parse(raw));
+      updateUrlDisplay();
+      return;
+    }
+  }catch(e){}
+  tracked=DEFAULT_SYMS.slice();
+  updateUrlDisplay();
+}
+
+function fmtFixed(v,d){
+  try{return Number(v).toFixed(d);}catch(e){return String(v);}
+}
+
+function fmtInt(v){
+  var n=Number(v);
+  if(!isFinite(n)) return String(v);
+  try{return n.toLocaleString("en-US");}catch(e){return String(Math.round(n));}
+}
+
+function fmtPrice(p){
+  var n=Number(p);
+  if(!isFinite(n)) return "—";
+  if(n>=1) return "$"+fmtInt(fmtFixed(n,2));
+  return "$"+fmtFixed(n,6);
+}
+
+function fmtCap(c){
+  var n=Number(c);
+  if(!isFinite(n)) return "—";
+  if(n>=1e12) return "$"+fmtFixed(n/1e12,1)+"T";
+  if(n>=1e9) return "$"+fmtFixed(n/1e9,1)+"B";
+  if(n>=1e6) return "$"+fmtFixed(n/1e6,1)+"M";
+  return "$"+fmtInt(n);
+}
+
+function fmtPct(v){
+  if(v==null || !isFinite(v)) return "—";
+  return (v>=0?"▲ ":"▼ ")+fmtFixed(Math.abs(v),1)+"%";
+}
+
+function pctClass(v){
+  if(v==null || !isFinite(v)) return "muted";
+  return v>=0?"up":"dn";
+}
+
+function showMsg(t){
+  var el=document.getElementById("cfgMsg");
+  if(!el) return;
+  el.textContent=t;
+  setTimeout(function(){el.textContent="";},3000);
+}
+
+function clearError(){
+  var el=document.getElementById("error");
+  if(el) el.innerHTML="";
+}
+
+function showError(msg){
+  var el=document.getElementById("error");
+  if(!el) return;
+  el.innerHTML='<div class="err">'+msg+'. <button onclick="refresh()" style="color:#f88;background:none;border:none;text-decoration:underline;cursor:pointer;font-family:monospace">Reintentar</button></div>';
+}
+
+function updateWarn(){
+  var el=document.getElementById("warn");
+  if(!el) return;
+  if(unresolved.length){
+    el.innerHTML='<div class="warn">Sin resolver o sin datos: '+unresolved.join(", ")+'</div>';
+  }else{
+    el.innerHTML="";
+  }
+}
+
+function setLoading(on){
+  loading=!!on;
+  render();
+}
+
+function abortReq(req){
+  if(!req) return;
+  try{req.abort();}catch(e){}
+}
+
+function cancelPending(){
+  if(pendingTimer){clearTimeout(pendingTimer);pendingTimer=0;}
+  abortReq(marketReq); marketReq=null;
+  abortReq(historyReq); historyReq=null;
+  abortReq(resolveReq); resolveReq=null;
+}
+
+function syncLocalView(){
+  var keep={},nextCoins=[],nextPct={},i,c,id;
+  for(i=0;i<tracked.length;i++) keep[tracked[i]]=1;
+  for(i=0;i<coins.length;i++){
+    c=coins[i];
+    if(c && keep[c._trackedSym]) nextCoins.push(c);
+  }
+  coins=nextCoins;
+  for(i=0;i<tracked.length;i++){
+    id=s2i[tracked[i]];
+    if(id && histPct[id]) nextPct[id]=histPct[id];
+  }
+  histPct=nextPct;
+  unresolved=filterActiveSyms(unresolved);
+  render();
+}
+
+function filterActiveSyms(list){
+  var out=[],i,s;
+  for(i=0;i<list.length;i++){
+    s=list[i];
+    if(listContains(tracked,s)) out.push(s);
+  }
+  return out;
+}
+
+function chooseBestCoin(list,sym){
+  var i,c,exactSym=null,exactId=null,exactName=null,prefix=null;
+  for(i=0;i<list.length;i++){
+    c=list[i];
+    if(normalizeSym(c.symbol)===sym){
+      if(!exactSym || rankOf(c)<rankOf(exactSym)) exactSym=c;
+    }else if(normalizeSym(c.id)===sym){
+      if(!exactId || rankOf(c)<rankOf(exactId)) exactId=c;
+    }else if(normalizeSym(c.name)===sym){
+      if(!exactName || rankOf(c)<rankOf(exactName)) exactName=c;
+    }else if(!prefix && normalizeSym(c.symbol).indexOf(sym)===0){
+      prefix=c;
+    }
+  }
+  return exactSym||exactId||exactName||prefix||(list.length===1?list[0]:null);
+}
+
+function rankOf(c){
+  var r=c&&c.market_cap_rank;
+  if(r==null || r==="") return 999999;
+  return Number(r)||999999;
+}
+
+function resolveSymbol(sym,token,callback){
+  if(s2i[sym]){callback(s2i[sym]);return;}
+  var x=new XMLHttpRequest();
+  resolveReq=x;
+  x.open("GET","https://api.coingecko.com/api/v3/search?query="+encodeURIComponent(sym));
+  x.timeout=10000;
+  x.onload=function(){
+    resolveReq=null;
+    if(token!==runId) return;
+    if(x.status===200){
+      try{
+        var d=JSON.parse(x.responseText);
+        var match=chooseBestCoin(d.coins||[],sym);
+        if(match){
+          s2i[sym]=match.id;
+          if(match.symbol) s2i[normalizeSym(match.symbol)]=match.id;
+          saveMappings();
+          callback(match.id);
+          return;
+        }
+      }catch(e){}
+    }
+    callback(null);
+  };
+  x.onerror=function(){resolveReq=null;if(token===runId) callback(null);};
+  x.ontimeout=function(){resolveReq=null;if(token===runId) callback(null);};
+  x.send();
+}
+
+function resolveTrackedSymbols(list,index,resolved,missing,token,done){
+  if(token!==runId) return;
+  if(index>=list.length){done(resolved,missing);return;}
+  var sym=list[index];
+  resolveSymbol(sym,token,function(id){
+    if(token!==runId) return;
+    if(id) resolved[sym]=id;
+    else missing.push(sym);
+    pendingTimer=setTimeout(function(){
+      resolveTrackedSymbols(list,index+1,resolved,missing,token,done);
+    },id?40:100);
+  });
+}
+
+function buildOrderedCoins(data,resolved){
+  var byId={},ordered=[],i,c,sym,id;
+  for(i=0;i<data.length;i++){
+    c=data[i];
+    byId[c.id]=c;
+    if(c.symbol) s2i[normalizeSym(c.symbol)]=c.id;
+  }
+  saveMappings();
+  for(i=0;i<tracked.length;i++){
+    sym=tracked[i];
+    id=resolved[sym];
+    if(id && byId[id]){
+      c=byId[id];
+      c._trackedSym=sym;
+      ordered.push(c);
+    }
+  }
+  return ordered;
+}
+
+function fetchMarkets(resolved,missing,token,callback){
+  var ids=[],seen={},i,sym,id;
+  for(i=0;i<tracked.length;i++){
+    sym=tracked[i];
+    id=resolved[sym];
+    if(id && !seen[id]){seen[id]=1;ids.push(id);}
+  }
+  unresolved=missing.slice();
+  if(!ids.length){
+    coins=[];
+    render();
+    callback(false);
+    return;
+  }
+  var x=new XMLHttpRequest();
+  marketReq=x;
+  x.open("GET","https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids="+ids.join(",")+"&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d,30d");
+  x.timeout=15000;
+  x.onload=function(){
+    marketReq=null;
+    if(token!==runId) return;
+    if(x.status===200){
+      try{
+        var data=JSON.parse(x.responseText)||[];
+        coins=buildOrderedCoins(data,resolved);
+        var missingNow=[],present={};
+        for(i=0;i<coins.length;i++) present[coins[i]._trackedSym]=1;
+        for(i=0;i<tracked.length;i++) if(!present[tracked[i]] && !listContains(unresolved,tracked[i])) missingNow.push(tracked[i]);
+        unresolved=mergeUnique(unresolved,missingNow);
+        clearError();
+        document.getElementById("time").textContent=new Date().toLocaleTimeString("es");
+        render();
+        callback(true);
+        return;
+      }catch(e){
+        showError("Respuesta inválida");
+      }
+    }else{
+      showError("Error HTTP "+x.status);
+    }
+    render();
+    callback(false);
+  };
+  x.onerror=function(){marketReq=null;if(token===runId){showError("Error de conexión");render();callback(false);}};
+  x.ontimeout=function(){marketReq=null;if(token===runId){showError("Timeout");render();callback(false);}};
+  x.send();
+}
+
+function parseTime(v){
+  var t=Date.parse(v||"");
+  if(isNaN(t)) return new Date().getTime();
+  return t;
+}
+
+function findClosestPrice(prices,targetTs){
+  var best=null,bestDiff=Infinity,i,diff;
+  for(i=0;i<prices.length;i++){
+    diff=Math.abs(prices[i][0]-targetTs);
+    if(diff<bestDiff){bestDiff=diff;best=prices[i][1];}
+  }
+  return best;
+}
+
+function findPriceBefore(prices,targetTs){
+  var best=null,i;
+  for(i=0;i<prices.length;i++){
+    if(prices[i][0]<=targetTs) best=prices[i][1];
+    else break;
+  }
+  if(best!=null) return best;
+  return findClosestPrice(prices,targetTs);
+}
+
+function computeHistoricalPercents(coin,prices){
+  var current=Number(coin.current_price),nowTs=parseTime(coin.last_updated),res={};
+  if(!isFinite(current) || !prices || !prices.length) return res;
+  var p24=findPriceBefore(prices,nowTs-86400000);
+  var p7=findPriceBefore(prices,nowTs-7*86400000);
+  var p30=findPriceBefore(prices,nowTs-30*86400000);
+  if(p24!=null && p24>0) res.p24=((current-p24)/p24)*100;
+  if(p7!=null && p7>0) res.p7=((current-p7)/p7)*100;
+  if(p30!=null && p30>0) res.p30=((current-p30)/p30)*100;
+  return res;
+}
+
+function fetchHistoricalForIndex(index,token){
+  if(token!==runId) return;
+  if(index>=coins.length){render();return;}
+  var coin=coins[index];
+  if(!coin || !coin.id){
+    pendingTimer=setTimeout(function(){fetchHistoricalForIndex(index+1,token);},80);
+    return;
+  }
+  if(histPct[coin.id] && histPct[coin.id].p24!=null && histPct[coin.id].p7!=null && histPct[coin.id].p30!=null){
+    pendingTimer=setTimeout(function(){fetchHistoricalForIndex(index+1,token);},80);
+    return;
+  }
+  pendingTimer=setTimeout(function(){
+    var x=new XMLHttpRequest();
+    historyReq=x;
+    x.open("GET","https://api.coingecko.com/api/v3/coins/"+encodeURIComponent(coin.id)+"/market_chart?vs_currency=usd&days=31&interval=daily");
+    x.timeout=15000;
+    x.onload=function(){
+      historyReq=null;
+      if(token!==runId) return;
+      if(x.status===200){
+        try{
+          var d=JSON.parse(x.responseText);
+          var prices=d.prices||[];
+          histPct[coin.id]=computeHistoricalPercents(coin,prices);
+        }catch(e){}
+      }
+      render();
+      fetchHistoricalForIndex(index+1,token);
+    };
+    x.onerror=function(){historyReq=null;if(token===runId){render();fetchHistoricalForIndex(index+1,token);}};
+    x.ontimeout=function(){historyReq=null;if(token===runId){render();fetchHistoricalForIndex(index+1,token);}};
+    x.send();
+  },index===0?0:900);
+}
+
+function refresh(){
+  var token=++runId;
+  cancelPending();
+  tracked=uniqueSyms(tracked);
+  syncLocalView();
+  clearError();
+  if(!tracked.length){
+    coins=[];
+    unresolved=[];
+    histPct={};
+    loading=false;
+    render();
+    return;
+  }
+  loading=true;
+  render();
+  resolveTrackedSymbols(tracked.slice(),0,{},[],token,function(resolved,missing){
+    if(token!==runId) return;
+    fetchMarkets(resolved,missing,token,function(ok){
+      if(token!==runId) return;
+      loading=false;
+      render();
+      if(ok && coins.length) fetchHistoricalForIndex(0,token);
+    });
+  });
+}
+
+function getFallbackPct(c,key){
+  if(c[key]!=null && isFinite(c[key])) return Number(c[key]);
+  return null;
+}
+
+function render(){
+  var tb=document.getElementById("tbody");
+  var tbl=document.getElementById("tbl");
+  var ld=document.getElementById("loading");
+  var em=document.getElementById("empty");
+  var pct=document.getElementById("pctSrc");
+  var bySym={},i,c,sym,h="",histReady=0,marketRows=0;
+  updateWarn();
+  ld.style.display=loading && !coins.length?"block":"none";
+  if(!tracked.length){
+    tbl.style.display="none";
+    em.style.display="block";
+    pct.textContent="";
+    return;
+  }
+  em.style.display="none";
+  tbl.style.display="table";
+  for(i=0;i<coins.length;i++) if(coins[i] && coins[i]._trackedSym) bySym[coins[i]._trackedSym]=coins[i];
+  for(i=0;i<tracked.length;i++){
+    sym=tracked[i];
+    c=bySym[sym];
+    if(c){
+      var hp=histPct[c.id]||{};
+      var p24=hp.p24!=null?hp.p24:getFallbackPct(c,"price_change_percentage_24h_in_currency");
+      var p7=hp.p7!=null?hp.p7:getFallbackPct(c,"price_change_percentage_7d_in_currency");
+      var p30=hp.p30!=null?hp.p30:getFallbackPct(c,"price_change_percentage_30d_in_currency");
+      if(hp.p24!=null && hp.p7!=null && hp.p30!=null) histReady++;
+      marketRows++;
+      h+='<tr><td><span class="sym">'+c.symbol.toUpperCase()+'</span><br><span class="name">'+c.name+'</span></td>';
+      h+='<td class="r mono">'+fmtPrice(c.current_price)+'</td>';
+      h+='<td class="r mono '+pctClass(p24)+'">'+fmtPct(p24)+'</td>';
+      h+='<td class="r mono '+pctClass(p7)+'">'+fmtPct(p7)+'</td>';
+      h+='<td class="r mono '+pctClass(p30)+'">'+fmtPct(p30)+'</td>';
+      h+='<td class="r muted" style="font-size:10px">'+fmtCap(c.market_cap)+'</td>';
+      h+='<td><button class="rm" onclick="removeCoin(\''+sym+'\')">&#10005;</button></td></tr>';
+    }else{
+      var label=unresolved.length && listContains(unresolved,sym)?"Sin resolver":"Cargando...";
+      if(!loading && !listContains(unresolved,sym)) label="Sin datos";
+      h+='<tr><td><span class="sym">'+sym.toUpperCase()+'</span><br><span class="name">'+label+'</span></td>';
+      h+='<td class="r mono muted">—</td><td class="r mono muted">—</td><td class="r mono muted">—</td><td class="r mono muted">—</td><td class="r muted" style="font-size:10px">—</td>';
+      h+='<td><button class="rm" onclick="removeCoin(\''+sym+'\')">&#10005;</button></td></tr>';
+    }
+  }
+  tb.innerHTML=h;
+  if(!marketRows){
+    pct.textContent=unresolved.length?"Los símbolos sin resolver permanecen visibles para poder corregirlos o quitarlos.":"";
+  }else if(histReady===marketRows){
+    pct.textContent="% calculados con histórico CoinGecko + precio actual.";
+  }else if(histReady>0){
+    pct.textContent="% históricos cuando estuvieron disponibles; en lo demás se usa el dato directo de CoinGecko.";
+  }else{
+    pct.textContent="% usando el dato directo de CoinGecko mientras carga el histórico.";
+  }
+}
+
+function removeCoin(sym){
+  var next=[],i;
+  sym=normalizeSym(sym);
+  for(i=0;i<tracked.length;i++) if(tracked[i]!==sym) next.push(tracked[i]);
+  tracked=next;
+  syncLocalView();
+  storeTracked(false);
+  refresh();
+}
+
+function triggerSearch(){
+  var v=document.getElementById("search").value;
+  if(v.length<2){alert("Escribe al menos 2 caracteres");return;}
+  doSearch(v);
+}
+
+function doSearch(q){
+  var x=new XMLHttpRequest();
+  x.open("GET","https://api.coingecko.com/api/v3/search?query="+encodeURIComponent(q));
+  x.timeout=10000;
+  x.onload=function(){
+    if(x.status===200){
+      try{
+        var d=JSON.parse(x.responseText);
+        var list=(d.coins||[]).slice(0,8);
+        var sg=document.getElementById("sug"),h="",i,c,sym,added;
+        for(i=0;i<list.length;i++){
+          c=list[i];
+          sym=normalizeSym(c.symbol);
+          if(sym) s2i[sym]=c.id;
+          added=listContains(tracked,sym);
+          if(added){
+            h+='<div class="added">'+c.symbol.toUpperCase()+' - '+c.name+' &#10003;</div>';
+          }else{
+            h+='<div onclick="addCoin(\''+sym+'\')"><b>'+c.symbol.toUpperCase()+'</b> '+c.name+'</div>';
+          }
+        }
+        if(!h) h='<div class="muted">Sin resultados</div>';
+        sg.innerHTML=h;
+        sg.style.display="block";
+        saveMappings();
+      }catch(e){showError("No se pudo leer la búsqueda");}
+    }else{
+      showError("Error HTTP "+x.status+" al buscar");
+    }
+  };
+  x.onerror=function(){showError("Error de conexión al buscar");};
+  x.ontimeout=function(){showError("Timeout al buscar");};
+  x.send();
+}
+
+function addCoin(sym){
+  sym=normalizeSym(sym);
+  if(!sym) return;
+  if(!listContains(tracked,sym)) tracked.push(sym);
+  syncLocalView();
+  storeTracked(false);
+  document.getElementById("search").value="";
+  document.getElementById("sug").style.display="none";
+  refresh();
+}
+
+function toggleCfg(){
+  var p=document.getElementById("cfgPanel");
+  p.style.display=p.style.display==="block"?"none":"block";
+  updateUrlDisplay();
+}
+
+function copyUrl(){
+  var url=location.href;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){navigator.clipboard.writeText(url);showMsg("URL copiada");return;}
+  }catch(e){}
+  prompt("Copia esta URL:",url);
+}
+
+function resetDefault(){
+  tracked=DEFAULT_SYMS.slice();
+  histPct={};
+  unresolved=[];
+  syncLocalView();
+  storeTracked(false);
+  refresh();
+  showMsg("Lista restaurada");
+}
+
+function exportCfg(){
+  if(!tracked.length){alert("No hay monedas");return;}
+  var data=JSON.stringify({coins:tracked,date:new Date().toISOString()},null,2);
+  try{
+    var blob=new Blob([data],{type:"application/json"});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");
+    a.href=url;
+    a.download="crypto_config.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showMsg("Exportado");
+  }catch(e){
+    try{
+      var w=window.open("","_blank");
+      if(w){w.document.write("<pre>"+data+"</pre>");showMsg("Texto en nueva ventana");return;}
+    }catch(e2){}
+    prompt("Copia este JSON:",data);
+  }
+}
+
+function importCfg(input){
+  if(!input.files || !input.files[0]) return;
+  try{
+    var reader=new FileReader();
+    reader.onload=function(e){
+      try{
+        var data=JSON.parse(e.target.result);
+        var imp=uniqueSyms(data.coins||data);
+        if(imp && imp.length){
+          tracked=imp;
+          histPct={};
+          unresolved=[];
+          syncLocalView();
+          storeTracked(false);
+          refresh();
+          showMsg("Importado: "+imp.length+" monedas");
+        }else{
+          alert("Archivo no válido.");
+        }
+      }catch(ex){alert("JSON inválido.");}
+    };
+    reader.readAsText(input.files[0]);
+  }catch(e){alert("Tu navegador no soporta lectura de archivos.");}
+  input.value="";
+}
+
+document.onclick=function(e){
+  var s=document.getElementById("sug"),inp=document.getElementById("search");
+  if(!s || !inp) return;
+  if(e.target!==s && e.target!==inp && !s.contains(e.target)) s.style.display="none";
+};
+
+if(window.addEventListener){
+  window.addEventListener("hashchange",function(){
+    if(selfHash) return;
+    var fromUrl=readFromUrl();
+    if(fromUrl && fromUrl.length) tracked=fromUrl;
+    else load();
+    histPct={};
+    unresolved=[];
+    syncLocalView();
+    storeTracked(true);
+    refresh();
+  });
+}
+
+load();
+storeTracked(false);
+refresh();
+setInterval(refresh,60000);
+</script>
+</body>
+</html>
