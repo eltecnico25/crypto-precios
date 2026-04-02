@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cripto Precios Ligero</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:monospace,sans-serif;background:#111;color:#eee;padding:8px;font-size:13px}
+h1{font-size:16px;margin-bottom:4px}
+.sub{color:#888;font-size:11px;margin-bottom:10px}
+.err{background:#400;color:#f88;padding:6px;margin-bottom:8px;border:1px solid #800;font-size:11px}
+input[type=text]{width:100%;padding:6px;background:#222;color:#eee;border:1px solid #444;font-family:monospace;font-size:13px;margin-bottom:4px}
+input[type=text]:focus{outline:1px solid #4a4;border-color:#4a4}
+.btn{background:#222;color:#ccc;border:1px solid #444;padding:6px 12px;cursor:pointer;font-family:monospace;font-size:12px;display:inline-block}
+.btn:hover{background:#333}
+.btn-green{color:#4a4;border-color:#4a4}
+.btn-red{color:#f44;border-color:#f44}
+.btn-full{width:100%;text-align:center;margin-bottom:4px}
+.suggestions{background:#222;border:1px solid #444;max-height:150px;overflow:auto;display:none}
+.suggestions div{padding:6px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid #333}
+.suggestions div:hover{background:#333}
+.suggestions .added{color:#666;cursor:default}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{text-align:left;color:#888;font-size:11px;font-weight:normal;padding:4px 2px;border-bottom:1px solid #333}
+th.r,td.r{text-align:right}
+td{padding:6px 2px;border-bottom:1px solid #222;font-size:12px}
+.sym{font-weight:bold;color:#fff}
+.name{color:#888;font-size:10px}
+.up{color:#4c4}
+.dn{color:#f44}
+.mono{font-family:monospace}
+.rm{background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:2px 4px}
+.rm:hover{color:#f44}
+.foot{text-align:center;margin-top:12px;border-top:1px solid #333;padding-top:8px}
+.foot button{color:#4a4;background:none;border:none;cursor:pointer;font-family:monospace;font-size:12px;text-decoration:underline}
+.foot p{color:#666;font-size:10px;margin-top:4px}
+.cfg{margin:6px 0;font-size:11px}
+.empty{text-align:center;color:#888;padding:20px 0}
+.loading{text-align:center;color:#888;padding:30px 0}
+.cfgpanel{display:none;margin-top:6px;padding:6px;border:1px solid #333;background:#1a1a1a}
+.cfgrow{margin-bottom:6px}
+.msg{color:#4a4;font-size:11px;margin:4px 0}
+.urlinfo{background:#1a2a1a;border:1px solid #343;padding:6px;margin:6px 0;font-size:10px;color:#8a8;word-break:break-all}
+</style>
+</head>
+<body>
+<h1>&#128202; Crypto Prices</h1>
+<p class="sub">Ultraligero &middot; Actualizaci&oacute;n: <span id="time">...</span></p>
+
+<!-- Search -->
+<div>
+<input type="text" id="search" placeholder="Buscar: btc, bnb, sol...">
+<button class="btn btn-green btn-full" onclick="triggerSearch()">&#128269; Buscar</button>
+</div>
+<div class="suggestions" id="sug"></div>
+
+<!-- Config -->
+<div class="cfg">
+<button class="btn btn-full" onclick="toggleCfg()">&#128190; Configuraciones &#9660;</button>
+<div id="cfgPanel" class="cfgpanel">
+<p style="color:#aaa;font-size:11px;margin-bottom:6px">La lista se guarda en la URL usando abreviaturas. Guarda como marcador para conservarla.</p>
+<div class="urlinfo" id="urlDisplay"></div>
+<div class="cfgrow"><button class="btn btn-green btn-full" onclick="copyUrl()">&#128203; Copiar URL con lista actual</button></div>
+<div class="cfgrow"><button class="btn btn-full" onclick="exportCfg()">&#128229; Exportar a archivo</button></div>
+<div class="cfgrow">
+<label class="btn btn-full" style="cursor:pointer">&#128194; Importar archivo
+<input type="file" id="fileInput" accept=".json,.txt" style="display:none" onchange="importCfg(this)">
+</label>
+</div>
+<div class="cfgrow"><button class="btn btn-red btn-full" onclick="resetDefault()">&#8635; Restaurar lista por defecto</button></div>
+<div id="cfgMsg" class="msg"></div>
+</div>
+</div>
+
+<div id="error"></div>
+<div id="loading" class="loading">Cargando precios...</div>
+<table id="tbl" style="display:none">
+<thead><tr>
+<th>Moneda</th><th class="r">Precio</th><th class="r">24h</th><th class="r">7d</th><th class="r">30d</th><th class="r">Cap.</th><th></th>
+</tr></thead>
+<tbody id="tbody"></tbody>
+</table>
+<div id="empty" class="empty" style="display:none">Agrega criptomonedas usando el campo de arriba.</div>
+
+<div class="foot">
+<button onclick="fetchPrices()">&#128260; Actualizar ahora</button>
+<p>Datos: CoinGecko &middot; Auto-refresh: 60s</p>
+</div>
+
+<script>
+var DEFAULT_SYMS=["btc","eth","sol","doge","ada"];
+
+// Master map: symbol -> coingecko id
+var s2i={};
+s2i["btc"]="bitcoin";s2i["eth"]="ethereum";s2i["sol"]="solana";
+s2i["doge"]="dogecoin";s2i["ada"]="cardano";s2i["bnb"]="binancecoin";
+s2i["xrp"]="ripple";s2i["dot"]="polkadot";s2i["avax"]="avalanche-2";
+s2i["matic"]="matic-network";s2i["link"]="chainlink";s2i["uni"]="uniswap";
+s2i["ltc"]="litecoin";s2i["atom"]="cosmos";s2i["xlm"]="stellar";
+s2i["shib"]="shiba-inu";s2i["trx"]="tron";s2i["near"]="near";
+s2i["apt"]="aptos";s2i["sui"]="sui";s2i["pepe"]="pepe";
+s2i["arb"]="arbitrum";s2i["op"]="optimism";s2i["fil"]="filecoin";
+
+var tracked=[]; // array of symbols (lowercase)
+var coins=[];
+
+// URL: #btc,eth,sol (just symbols, comma separated)
+function readFromUrl(){
+  var h=location.hash||"";
+  if(h.length>1){
+    var s=h.substring(1);
+    // backward compat: skip old formats
+    if(s.indexOf("c=")===0) s=s.substring(2);
+    if(s.indexOf("coins=")===0) s=s.substring(6);
+    if(s.length>0){
+      var parts=s.split(",");
+      var syms=[];
+      for(var i=0;i<parts.length;i++){
+        var p=parts[i].toLowerCase().replace(/[^a-z0-9]/g,"");
+        // Handle old sym.id format
+        var dot=p.indexOf(".");
+        if(dot>0) p=p.substring(0,dot);
+        if(p.length>0) syms.push(p);
+      }
+      return syms;
+    }
+  }
+  return null;
+}
+
+function writeToUrl(){
+  if(tracked.length>0){
+    location.hash=tracked.join(",");
+  }else{
+    location.hash="";
+  }
+  updateUrlDisplay();
+}
+
+function updateUrlDisplay(){
+  var el=document.getElementById("urlDisplay");
+  if(el) el.textContent=location.href;
+}
+
+function getIds(){
+  // Convert tracked symbols to CoinGecko IDs
+  var ids=[];
+  for(var i=0;i<tracked.length;i++){
+    var sym=tracked[i];
+    var id=s2i[sym]||sym; // fallback: use symbol as id
+    ids.push(id);
+  }
+  return ids;
+}
+
+function load(){
+  var fromUrl=readFromUrl();
+  if(fromUrl&&fromUrl.length>0){tracked=fromUrl;return}
+  try{var s=localStorage.getItem("tracked_syms");if(s){tracked=JSON.parse(s);return}}catch(e){}
+  tracked=DEFAULT_SYMS.slice();
+}
+
+function save(){
+  writeToUrl();
+  try{localStorage.setItem("tracked_syms",JSON.stringify(tracked))}catch(e){}
+}
+
+load();
+writeToUrl();
+
+function fmtPrice(p){return p>=1?"$"+p.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"$"+p.toFixed(6)}
+function fmtCap(c){return c>=1e12?"$"+(c/1e12).toFixed(1)+"T":c>=1e9?"$"+(c/1e9).toFixed(1)+"B":c>=1e6?"$"+(c/1e6).toFixed(1)+"M":"$"+c}
+function fmtPct(v){if(v==null)return"\u2014";var a=Math.abs(v).toFixed(1);return(v>=0?"\u25B2 ":"\u25BC ")+a+"%"}
+function pctClass(v){return v==null?"":v>=0?"up":"dn"}
+
+function showMsg(t){var el=document.getElementById("cfgMsg");el.textContent=t;setTimeout(function(){el.textContent=""},3000)}
+
+function fetchPrices(){
+  var ids=getIds();
+  if(!ids.length){coins=[];render();return}
+  var x=new XMLHttpRequest();
+  x.open("GET","https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids="+ids.join(",")+"&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d,30d");
+  x.timeout=15000;
+  x.onload=function(){
+    if(x.status===200){
+      try{
+        coins=JSON.parse(x.responseText);
+        // Learn new symbol->id mappings from API
+        for(var i=0;i<coins.length;i++){
+          var c=coins[i];
+          s2i[c.symbol.toLowerCase()]=c.id;
+        }
+      }catch(e){coins=[]}
+      document.getElementById("error").innerHTML="";
+      document.getElementById("time").textContent=new Date().toLocaleTimeString("es");
+    }else{
+      document.getElementById("error").innerHTML='<div class="err">Error HTTP '+x.status+'. <button onclick="fetchPrices()" style="color:#f88;background:none;border:none;text-decoration:underline;cursor:pointer;font-family:monospace">Reintentar</button></div>';
+    }
+    render();
+  };
+  x.onerror=function(){
+    document.getElementById("error").innerHTML='<div class="err">Error de conexi&oacute;n. <button onclick="fetchPrices()" style="color:#f88;background:none;border:none;text-decoration:underline;cursor:pointer;font-family:monospace">Reintentar</button></div>';
+    render();
+  };
+  x.ontimeout=function(){
+    document.getElementById("error").innerHTML='<div class="err">Timeout. <button onclick="fetchPrices()" style="color:#f88;background:none;border:none;text-decoration:underline;cursor:pointer;font-family:monospace">Reintentar</button></div>';
+    render();
+  };
+  x.send();
+}
+
+function render(){
+  var tb=document.getElementById("tbody");
+  var tbl=document.getElementById("tbl");
+  var ld=document.getElementById("loading");
+  var em=document.getElementById("empty");
+  ld.style.display="none";
+  if(!tracked.length||!coins.length){tbl.style.display="none";em.style.display="block";return}
+  em.style.display="none";tbl.style.display="table";
+  var h="";
+  for(var i=0;i<coins.length;i++){
+    var c=coins[i];
+    var p24=c.price_change_percentage_24h||0;
+    var p7=c.price_change_percentage_7d_in_currency;
+    var p30=c.price_change_percentage_30d_in_currency;
+    h+='<tr><td><span class="sym">'+c.symbol.toUpperCase()+'</span><br><span class="name">'+c.name+'</span></td>';
+    h+='<td class="r mono">'+fmtPrice(c.current_price)+'</td>';
+    h+='<td class="r mono '+pctClass(p24)+'">'+fmtPct(p24)+'</td>';
+    h+='<td class="r mono '+pctClass(p7)+'">'+fmtPct(p7)+'</td>';
+    h+='<td class="r mono '+pctClass(p30)+'">'+fmtPct(p30)+'</td>';
+    h+='<td class="r" style="color:#888;font-size:10px">'+fmtCap(c.market_cap)+'</td>';
+    h+='<td><button class="rm" onclick="removeCoin(\''+c.symbol.toLowerCase()+'\')">&#10005;</button></td></tr>';
+  }
+  tb.innerHTML=h;
+}
+
+function removeCoin(sym){
+  for(var i=tracked.length-1;i>=0;i--)if(tracked[i]===sym)tracked.splice(i,1);
+  save();fetchPrices();
+}
+
+function triggerSearch(){
+  var v=document.getElementById("search").value;
+  if(v.length<2){alert("Escribe al menos 2 caracteres");return}
+  doSearch(v);
+}
+
+function doSearch(q){
+  var x=new XMLHttpRequest();
+  x.open("GET","https://api.coingecko.com/api/v3/search?query="+encodeURIComponent(q));
+  x.timeout=10000;
+  x.onload=function(){
+    if(x.status===200){
+      try{
+        var d=JSON.parse(x.responseText);
+        var list=(d.coins||[]).slice(0,8);
+        var sg=document.getElementById("sug");
+        var h="";
+        for(var i=0;i<list.length;i++){
+          var c=list[i];
+          var sym=c.symbol.toLowerCase();
+          s2i[sym]=c.id; // learn mapping
+          var added=tracked.indexOf(sym)>=0;
+          if(added){
+            h+='<div class="added">'+c.symbol.toUpperCase()+' - '+c.name+' &#10003;</div>';
+          }else{
+            h+='<div onclick="addCoin(\''+sym+'\')"><b>'+c.symbol.toUpperCase()+'</b> '+c.name+'</div>';
+          }
+        }
+        sg.innerHTML=h;
+        sg.style.display=h?"block":"none";
+      }catch(e){}
+    }
+  };
+  x.onerror=function(){alert("Error de conexion al buscar.")};
+  x.send();
+}
+
+function addCoin(sym){
+  if(tracked.indexOf(sym)<0){tracked.push(sym);save();fetchPrices()}
+  document.getElementById("search").value="";
+  document.getElementById("sug").style.display="none";
+}
+
+function toggleCfg(){
+  var p=document.getElementById("cfgPanel");
+  p.style.display=p.style.display==="none"||p.style.display===""?"block":"none";
+  updateUrlDisplay();
+}
+
+function copyUrl(){
+  var url=location.href;
+  try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url);showMsg("URL copiada");return}}catch(e){}
+  prompt("Copia esta URL:",url);
+}
+
+function resetDefault(){
+  tracked=DEFAULT_SYMS.slice();
+  save();fetchPrices();
+  showMsg("Lista restaurada");
+}
+
+function exportCfg(){
+  if(!tracked.length){alert("No hay monedas");return}
+  var data=JSON.stringify({coins:tracked,date:new Date().toISOString()},null,2);
+  try{
+    var blob=new Blob([data],{type:"application/json"});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");a.href=url;a.download="crypto_config.json";
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    URL.revokeObjectURL(url);showMsg("Exportado");
+  }catch(e){
+    try{var w=window.open("","_blank");if(w){w.document.write("<pre>"+data+"</pre>");showMsg("Texto en nueva ventana")}else{throw 1}}
+    catch(e2){prompt("Copia este JSON:",data)}
+  }
+}
+
+function importCfg(input){
+  if(!input.files||!input.files[0])return;
+  try{
+    var reader=new FileReader();
+    reader.onload=function(e){
+      try{
+        var data=JSON.parse(e.target.result);
+        var imp=data.coins||data;
+        if(imp&&imp.length){tracked=imp.slice();save();fetchPrices();showMsg("Importado: "+imp.length+" monedas")}
+        else{alert("Archivo no valido.")}
+      }catch(ex){alert("JSON invalido.")}
+    };
+    reader.readAsText(input.files[0]);
+  }catch(e){alert("Tu navegador no soporta lectura de archivos.")}
+  input.value="";
+}
+
+document.onclick=function(e){
+  var s=document.getElementById("sug"),inp=document.getElementById("search");
+  if(e.target!==s&&e.target!==inp&&!s.contains(e.target))s.style.display="none";
+};
+
+if(window.addEventListener){
+  window.addEventListener("hashchange",function(){
+    var fromUrl=readFromUrl();
+    if(fromUrl){tracked=fromUrl;fetchPrices()}
+  });
+}
+
+fetchPrices();
+setInterval(fetchPrices,60000);
+</script>
+</body>
+</html>
