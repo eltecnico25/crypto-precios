@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cripto Precios Ligero</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:monospace,sans-serif;background:#111;color:#eee;padding:8px;font-size:13px}
+h1{font-size:16px;margin-bottom:4px}
+.sub{color:#888;font-size:11px;margin-bottom:10px}
+.err{background:#400;color:#f88;padding:6px;margin-bottom:8px;border:1px solid #800;font-size:11px}
+.warn{background:#2a2400;color:#f2d479;padding:6px;margin-bottom:8px;border:1px solid #665200;font-size:11px}
+input[type=text]{width:100%;padding:6px;background:#222;color:#eee;border:1px solid #444;font-family:monospace;font-size:13px;margin-bottom:4px}
+input[type=text]:focus{outline:1px solid #4a4;border-color:#4a4}
+.btn{background:#222;color:#ccc;border:1px solid #444;padding:6px 12px;cursor:pointer;font-family:monospace;font-size:12px;display:inline-block}
+.btn:hover{background:#333}
+.btn-green{color:#4a4;border-color:#4a4}
+.btn-red{color:#f44;border-color:#f44}
+.btn-full{width:100%;text-align:center;margin-bottom:4px}
+.suggestions{background:#222;border:1px solid #444;max-height:150px;overflow:auto;display:none}
+.suggestions div{padding:6px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid #333}
+.suggestions div:hover{background:#333}
+.suggestions .added{color:#666;cursor:default}
+.suggestions .muted{color:#888}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{text-align:left;color:#888;font-size:11px;font-weight:normal;padding:4px 2px;border-bottom:1px solid #333}
+th.r,td.r{text-align:right}
+td{padding:6px 2px;border-bottom:1px solid #222;font-size:12px;vertical-align:top}
+.sym{font-weight:bold;color:#fff}
+.name{color:#888;font-size:10px}
+.up{color:#4c4}
+.dn{color:#f44}
+.muted{color:#777}
+.mono{font-family:monospace}
+.rm{background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:2px 4px}
+.rm:hover{color:#f44}
+.foot{text-align:center;margin-top:12px;border-top:1px solid #333;padding-top:8px}
+.foot button{color:#4a4;background:none;border:none;cursor:pointer;font-family:monospace;font-size:12px;text-decoration:underline}
+.foot p{color:#666;font-size:10px;margin-top:4px}
+.cfg{margin:6px 0;font-size:11px}
+.empty{text-align:center;color:#888;padding:20px 0}
+.badge{color:#4a4;font-size:10px;margin-left:4px}
+.badge.muted{color:#888}
+.cfgpanel{display:none;margin-top:6px;padding:6px;border:1px solid #333;background:#1a1a1a}
+.cfgrow{margin-bottom:6px}
+.msg{color:#4a4;font-size:11px;margin:4px 0}
+.urlinfo{background:#1a2a1a;border:1px solid #343;padding:6px;margin:6px 0;font-size:10px;color:#8a8;word-break:break-all}
+.pctinfo{font-size:10px;color:#686;text-align:center;margin-top:4px;line-height:1.4}
+
+/* ✅ Indicadores de estado */
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;vertical-align:middle;flex-shrink:0}
+.dot.fresh{background:#4a9eff;box-shadow:0 0 6px rgba(74,158,255,0.7)}
+.dot.api{background:#f90;box-shadow:0 0 4px rgba(255,153,0,0.6)}
+.dot.partial{background:#888;box-shadow:0 0 3px rgba(136,136,136,0.4)}
+.dot.loading{background:#555;animation:blink 1s infinite alternate}
+@keyframes blink{0%{opacity:.4}100%{opacity:1}}
+
+.legend{display:flex;gap:12px;justify-content:center;margin-top:6px;font-size:10px;color:#888;flex-wrap:wrap}
+.legend span{display:flex;align-items:center;gap:4px}
+</style>
+</head>
+<body>
+<h1>&#128202; Crypto Prices</h1>
+<p class="sub">Ultraligero &middot; Actualizaci&oacute;n: <span id="time">--:--:--</span><span id="badge" class="badge muted"></span></p>
+
+<div>
+<input type="text" id="search" placeholder="Buscar: btc, bnb, sol...">
+<button class="btn btn-green btn-full" onclick="triggerSearch()">&#128269; Buscar</button>
+</div>
+<div class="suggestions" id="sug"></div>
+
+<div class="cfg">
+<button class="btn btn-full" onclick="toggleCfg()">&#128190; Configuraciones &#9660;</button>
+<div id="cfgPanel" class="cfgpanel">
+<p style="color:#aaa;font-size:11px;margin-bottom:6px">La lista se guarda en la URL. Guarda como marcador para conservarla.</p>
+<div class="urlinfo" id="urlDisplay"></div>
+<div class="cfgrow"><button class="btn btn-green btn-full" onclick="copyUrl()">&#128203; Copiar URL con lista actual</button></div>
+<div class="cfgrow"><button class="btn btn-full" onclick="exportCfg()">&#128229; Exportar a archivo</button></div>
+<div class="cfgrow">
+<label class="btn btn-full" style="cursor:pointer">&#128194; Importar archivo
+<input type="file" id="fileInput" accept=".json,.txt" style="display:none" onchange="importCfg(this)">
+</label>
+</div>
+<div class="cfgrow"><button class="btn btn-red btn-full" onclick="resetDefault()">&#8635; Restaurar lista por defecto</button></div>
+<div id="cfgMsg" class="msg"></div>
+</div>
+</div>
+
+<div id="error"></div>
+<div id="warn"></div>
+<table id="tbl" style="display:none">
+<thead><tr>
+<th>Moneda</th><th class="r">Precio</th><th class="r">24h</th><th class="r">7d</th><th class="r">30d</th><th class="r">Cap.</th><th></th>
+</tr></thead>
+<tbody id="tbody"></tbody>
+</table>
+<div id="empty" class="empty" style="display:none">Agrega criptomonedas usando el campo de arriba.</div>
+<p class="pctinfo" id="pctSrc"></p>
+
+<div class="foot">
+<button onclick="triggerRefresh()">&#128260; Actualizar ahora</button>
+<div class="legend">
+<span><span class="dot fresh"></span> Cálculo Local (Confiable)</span>
+<span><span class="dot api"></span> API (No confiable)</span>
+<span><span class="dot loading"></span> Cargando</span>
+</div>
+<p>Datos: CoinGecko &middot; Cálculo local de % &middot; Históricos: 24h</p>
+</div>
+
+<script>
+function pad2(n){var s=String(n);return s.length<2?'0'+s:s;}
+var DEFAULT_SYMS=["btc","eth","sol","doge","ada"];
+var s2i={
+  "btc":"bitcoin","eth":"ethereum","sol":"solana","doge":"dogecoin","ada":"cardano",
+  "bnb":"binancecoin","xrp":"ripple","dot":"polkadot","avax":"avalanche-2","matic":"matic-network",
+  "link":"chainlink","uni":"uniswap","ltc":"litecoin","atom":"cosmos","xlm":"stellar",
+  "shib":"shiba-inu","trx":"tron","near":"near","apt":"aptos","sui":"sui",
+  "pepe":"pepe","arb":"arbitrum","op":"optimism","fil":"filecoin","ton":"the-open-network",
+  "etc":"ethereum-classic","hbar":"hedera-hashgraph","cro":"crypto-com-chain","vet":"vechain",
+  "algo":"algorand","aave":"aave","inj":"injective-protocol","rndr":"render-token"
+};
+var tracked=[],coins=[],histData={},unresolved=[],selfHash=false,runId=0,marketReq=null,historyReq=null,resolveReq=null,pendingTimer=0,lastRefresh=0,progressTotal=0,progressDone=0;
+
+var FRESH_WINDOW = 120000; // 2 min para punto azul en precio
+
+// ✅ Fecha clave UTC para validación diaria
+function getDayKey(ts){
+  var d=new Date(ts||Date.now());
+  return d.getUTCFullYear()+"-"+pad2(d.getUTCMonth()+1)+"-"+pad2(d.getUTCDate());
+}
+
+function normalizeSym(v){if(v==null)return "";return String(v).toLowerCase().replace(/[^a-z0-9-]/g,"");}
+function uniqueSyms(list){var out=[],seen={},i,s;if(!list)return out;for(i=0;i<list.length;i++){s=normalizeSym(list[i]);if(s&&!seen[s]){seen[s]=1;out.push(s);}}return out;}
+function listContains(list,val){var i;for(i=0;i<list.length;i++)if(list[i]===val)return true;return false;}
+function mergeUnique(a,b){var out=[],seen={},i,v;a=a||[];b=b||[];for(i=0;i<a.length;i++){v=a[i];if(!seen[v]){seen[v]=1;out.push(v);}}for(i=0;i<b.length;i++){v=b[i];if(!seen[v]){seen[v]=1;out.push(v);}}return out;}
+
+function readFromUrl(){var h=location.hash||"";if(h.length<=1)return null;var s=h.substring(1);if(s.indexOf("c=")===0)s=s.substring(2);if(s.indexOf("coins=")===0)s=s.substring(6);if(!s)return [];return uniqueSyms(s.split(","));}
+function updateUrlDisplay(){var el=document.getElementById("urlDisplay");if(el)el.textContent=location.href;}
+function writeToUrl(){var hash=tracked.length?"#"+tracked.join(","):"";selfHash=true;try{if(window.history&&history.replaceState){history.replaceState(null,document.title,location.href.split("#")[0]+hash);}else{location.hash=tracked.join(",");}}catch(e){location.hash=tracked.join(",");}updateUrlDisplay();setTimeout(function(){selfHash=false;},150);}
+function loadMappings(){try{var raw=localStorage.getItem("crypto_sym_map_v2");if(!raw)return;var saved=JSON.parse(raw),k;for(k in saved)if(saved[k])s2i[normalizeSym(k)]=saved[k];}catch(e){}}
+function saveMappings(){try{localStorage.setItem("crypto_sym_map_v2",JSON.stringify(s2i));}catch(e){}}
+function storeTracked(skipUrl){tracked=uniqueSyms(tracked);try{localStorage.setItem("tracked_syms",JSON.stringify(tracked));}catch(e){}saveMappings();if(skipUrl){updateUrlDisplay();}else{writeToUrl();}}
+
+// ✅ Cache v3 (limpio)
+function saveData(){try{localStorage.setItem("crypto_cache_v3",JSON.stringify({c:coins,h:histData,mt:marketLastUpdate}));}catch(e){}}
+var marketLastUpdate=0;
+function loadData(){try{var d=JSON.parse(localStorage.getItem("crypto_cache_v3"));if(d){coins=d.c||[];histData=d.h||{};marketLastUpdate=d.mt||0;}}catch(e){}}
+function load(){loadMappings();loadData();var fromUrl=readFromUrl();if(fromUrl&&fromUrl.length){tracked=fromUrl;updateUrlDisplay();return;}try{var raw=localStorage.getItem("tracked_syms");if(raw){tracked=uniqueSyms(JSON.parse(raw));updateUrlDisplay();return;}}catch(e){}tracked=DEFAULT_SYMS.slice();updateUrlDisplay();}
+
+function fmtFixed(v,d){try{return Number(v).toFixed(d);}catch(e){return String(v);}}
+function fmtInt(v){var n=Number(v);if(!isFinite(n))return String(v);try{return n.toLocaleString("en-US");}catch(e){return String(Math.round(n));}}
+function fmtPrice(p){var n=Number(p);if(!isFinite(n))return "—";if(n>=1)return "$"+fmtInt(fmtFixed(n,2));return "$"+fmtFixed(n,6);}
+function fmtCap(c){var n=Number(c);if(!isFinite(n))return "—";if(n>=1e12)return "$"+fmtFixed(n/1e12,1)+"T";if(n>=1e9)return "$"+fmtFixed(n/1e9,1)+"B";if(n>=1e6)return "$"+fmtFixed(n/1e6,1)+"M";return "$"+fmtInt(n);}
+function fmtPct(v){if(v==null||!isFinite(v))return "—";return (v>=0?"▲ ":"▼ ")+fmtFixed(Math.abs(v),1)+"%";}
+function pctClass(v){if(v==null||!isFinite(v))return "muted";return v>=0?"up":"dn";}
+
+function showMsg(t){var el=document.getElementById("cfgMsg");if(!el)return;el.textContent=t;setTimeout(function(){el.textContent="";},3000);}
+function clearError(){var el=document.getElementById("error");if(el)el.innerHTML="";}
+function showError(msg){var el=document.getElementById("error");if(!el)return;el.innerHTML='<div class="err">'+msg+'. <button onclick="triggerRefresh()" style="color:#f88;background:none;border:none;text-decoration:underline;cursor:pointer;font-family:monospace">Reintentar</button></div>';}
+function updateWarn(){var el=document.getElementById("warn");if(!el)return;if(unresolved.length){el.innerHTML='<div class="warn">Sin resolver o sin datos: '+unresolved.join(", ")+'</div>';}else{el.innerHTML="";}}
+function updateBadge(){var b=document.getElementById("badge");if(progressTotal===0){b.textContent="";b.className="badge muted";return;}var done=Math.min(progressDone,progressTotal);b.textContent=" ["+done+"/"+progressTotal+"]";b.className=done>=progressTotal?"badge muted":"badge";}
+function abortReq(req){if(!req)return;try{req.abort();}catch(e){}}
+function cancelPending(){if(pendingTimer){clearTimeout(pendingTimer);pendingTimer=0;}abortReq(marketReq);marketReq=null;abortReq(historyReq);historyReq=null;abortReq(resolveReq);resolveReq=null;}
+
+function chooseBestCoin(list,sym){var i,c,exactSym=[],exactId=[];var symSearch=normalizeSym(sym);for(i=0;i<list.length;i++){c=list[i];if(normalizeSym(c.symbol)===symSearch)exactSym.push(c);if(normalizeSym(c.id)===symSearch||normalizeSym(c.id).indexOf(symSearch)===0)exactId.push(c);}var candidates=(exactSym.length?exactSym:exactId);if(candidates.length===1)return candidates[0];if(candidates.length>1){candidates.sort(function(a,b){return (a.market_cap_rank||999999)-(b.market_cap_rank||999999);});return candidates[0];}for(i=0;i<list.length;i++){c=list[i];if(normalizeSym(c.symbol).indexOf(symSearch)===0)return c;}return list.length===1?list[0]:null;}
+
+function resolveSymbol(sym,token,callback){
+  if(s2i[sym]){callback(s2i[sym]);return;}
+  var x=new XMLHttpRequest();resolveReq=x;
+  x.open("GET","https://api.coingecko.com/api/v3/search?query="+encodeURIComponent(sym)+"&_cb="+Date.now());
+  x.setRequestHeader("Cache-Control","no-cache, no-store, must-revalidate");x.setRequestHeader("Pragma","no-cache");
+  x.timeout=10000;
+  x.onload=function(){resolveReq=null;if(token!==runId)return;if(x.status===200){try{var d=JSON.parse(x.responseText);var match=chooseBestCoin(d.coins||[],sym);if(match){s2i[sym]=match.id;if(match.symbol)s2i[normalizeSym(match.symbol)]=match.id;saveMappings();callback(match.id);return;}}catch(e){}}callback(null);};
+  x.onerror=x.ontimeout=function(){resolveReq=null;if(token===runId)callback(null);};
+  x.send();
+}
+
+function resolveTrackedSymbols(list,index,resolved,missing,token,done){
+  if(token!==runId)return;if(index>=list.length){done(resolved,missing);return;}
+  var sym=list[index];
+  resolveSymbol(sym,token,function(id){if(token!==runId)return;if(id)resolved[sym]=id;else missing.push(sym);pendingTimer=setTimeout(function(){resolveTrackedSymbols(list,index+1,resolved,missing,token,done);},id?50:100);});
+}
+
+function buildOrderedCoins(data,resolved){
+  var byId={},ordered=[],i,c,sym,id;
+  for(i=0;i<data.length;i++){c=data[i];byId[c.id]=c;if(c.symbol)s2i[normalizeSym(c.symbol)]=c.id;}
+  saveMappings();
+  for(i=0;i<tracked.length;i++){sym=tracked[i];id=resolved[sym];if(id&&byId[id]){c=byId[id];c._trackedSym=sym;ordered.push(c);}}
+  return ordered;
+}
+
+function fetchMarkets(resolved,missing,token,callback){
+  var ids=[],seen={},i,sym,id;for(i=0;i<tracked.length;i++){sym=tracked[i];id=resolved[sym];if(id&&!seen[id]){seen[id]=1;ids.push(id);}}unresolved=missing.slice();
+  if(!ids.length){clearError();document.getElementById("time").textContent=new Date().toLocaleTimeString("es");render();callback(false);return;}
+  var x=new XMLHttpRequest();marketReq=x;
+  x.open("GET","https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids="+ids.join(",")+"&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d,30d&_cb="+Date.now());
+  x.setRequestHeader("Cache-Control","no-cache, no-store, must-revalidate");x.setRequestHeader("Pragma","no-cache");
+  x.timeout=15000;
+  x.onload=function(){marketReq=null;if(token!==runId)return;if(x.status===200){
+    try{
+      var data=JSON.parse(x.responseText)||[];
+      if(data.length>0){
+        var newCoins=buildOrderedCoins(data,resolved);
+        coins=newCoins;
+        marketLastUpdate=Date.now();
+        clearError();
+      }
+      var missingNow=[],present={};for(i=0;i<coins.length;i++)present[coins[i]._trackedSym]=1;
+      for(i=0;i<tracked.length;i++)if(!present[tracked[i]]&&!listContains(unresolved,tracked[i]))missingNow.push(tracked[i]);
+      unresolved=mergeUnique(unresolved,missingNow);
+      document.getElementById("time").textContent=new Date().toLocaleTimeString("es");
+      saveData();render();callback(true);return;
+    }catch(e){showError("Respuesta inválida");}
+  }else{
+    showError("Error HTTP "+x.status+" (datos cacheados)");
+  }
+  render();callback(false);
+};
+  x.onerror=function(){marketReq=null;if(token===runId){showError("Error de conexión (datos cacheados)");render();callback(false);}};
+  x.ontimeout=function(){marketReq=null;if(token===runId){showError("Timeout (datos cacheados)");render();callback(false);}};
+  x.send();
+}
+
+// ✅ Cálculo local: busca precio por día exacto en el histórico
+function findPriceByDayKey(prices, targetDayKey){
+  if(!prices||!prices.length)return null;
+  for(var i=prices.length-1;i>=0;i--){
+    if(getDayKey(prices[i][0])===targetDayKey && prices[i][1]!=null && prices[i][1]>0) return prices[i][1];
+  }
+  return null;
+}
+
+function computePercentsLocal(coin, histPrices){
+  var current=Number(coin.current_price), nowTs=Date.now(), res={};
+  if(!isFinite(current)||!histPrices||!histPrices.length) return res;
+  
+  var todayKey=getDayKey(nowTs);
+  var p24=findPriceByDayKey(histPrices, getDayKey(nowTs-86400000));
+  var p7=findPriceByDayKey(histPrices, getDayKey(nowTs-7*86400000));
+  var p29=findPriceByDayKey(histPrices, getDayKey(nowTs-29*86400000));
+  
+  if(p24!=null&&p24>0) res.p24=((current-p24)/p24)*100;
+  if(p7!=null&&p7>0) res.p7=((current-p7)/p7)*100;
+  if(p29!=null&&p29>0) res.p29=((current-p29)/p29)*100;
+  return res;
+}
+
+// ✅ ✅ SECUENCIAL ROBUSTA: Procesa 1 por 1, actualiza UI, respeta token
+function fetchHistoricalsSequential(index, token){
+  if(token!==runId) return;
+  if(index>=coins.length){ updateBadge(); return; }
+  
+  var coin=coins[index];
+  var id=coin.id, sym=coin._trackedSym;
+  var todayKey=getDayKey(Date.now());
+  var cached=histData[id];
+
+  // Si ya tiene histórico válido para HOY, saltar
+  if(cached && cached.dayKey===todayKey && cached.prices && cached.prices.length>0){
+    progressDone=Math.min(progressDone+1, progressTotal);
+    updateBadge(); render();
+    pendingTimer=setTimeout(function(){fetchHistoricalsSequential(index+1, token);}, 40);
+    return;
+  }
+
+  // Necesita descargar
+  var x=new XMLHttpRequest();
+  historyReq=x;
+  x.open("GET","https://api.coingecko.com/api/v3/coins/"+encodeURIComponent(id)+"/market_chart?vs_currency=usd&days=31&interval=daily&_cb="+Date.now());
+  x.setRequestHeader("Cache-Control","no-cache, no-store, must-revalidate");
+  x.setRequestHeader("Pragma","no-cache");
+  x.timeout=15000;
+  x.onload=function(){
+    historyReq=null; if(token!==runId) return;
+    if(x.status===200){
+      try{
+        var d=JSON.parse(x.responseText);
+        var prices=d.prices||[];
+        if(prices&&prices.length>0){
+          histData[id]={dayKey:todayKey, prices:prices, ts:Date.now()};
+          saveData();
+        }
+      }catch(e){}
+    }
+    progressDone=Math.min(progressDone+1, progressTotal);
+    updateBadge(); render(); // Actualiza fila con cálculo local
+    pendingTimer=setTimeout(function(){fetchHistoricalsSequential(index+1, token);}, 850);
+  };
+  x.onerror=x.ontimeout=function(){
+    historyReq=null; if(token!==runId) return;
+    progressDone=Math.min(progressDone+1, progressTotal);
+    updateBadge(); render();
+    pendingTimer=setTimeout(function(){fetchHistoricalsSequential(index+1, token);}, 1000);
+  };
+  x.send();
+}
+
+// ✅ FLUJO OPTIMIZADO
+function triggerRefresh(){
+  var now=Date.now();if(now-lastRefresh<1000)return;lastRefresh=now;
+  var token=++runId;cancelPending();tracked=uniqueSyms(tracked);clearError();
+  if(!tracked.length){coins=[];histData={};unresolved=[];marketLastUpdate=0;progressTotal=0;progressDone=0;updateBadge();render();return;}
+  
+  progressTotal=tracked.length;progressDone=0;updateBadge();
+  render();
+  document.getElementById("time").textContent=new Date().toLocaleTimeString("es");
+  
+  resolveTrackedSymbols(tracked.slice(),0,{},[],token,function(resolved,missing){
+    if(token!==runId)return;
+    fetchMarkets(resolved,missing,token,function(ok){
+      if(token!==runId)return;
+      if(ok && coins.length){
+        var todayKey=getDayKey(Date.now());
+        var pendingHist=0;
+        for(var i=0;i<coins.length;i++){
+          var c=histData[coins[i].id];
+          if(!c || c.dayKey!==todayKey) pendingHist++;
+        }
+        progressDone=0; progressTotal=pendingHist; updateBadge();
+        fetchHistoricalsSequential(0, token);
+      } else {
+        updateBadge();
+      }
+    });
+  });
+}
+
+function getFallbackPct(c,key){if(c[key]!=null&&isFinite(c[key]))return Number(c[key]);return null;}
+
+// ✅ Renderizado con colores semánticos + punto naranja para API
+function render(){
+  var tb=document.getElementById("tbody"),tbl=document.getElementById("tbl"),em=document.getElementById("empty"),pct=document.getElementById("pctSrc");
+  var bySym={},i,c,sym,h="",histReady=0,marketRows=0, now=Date.now();
+  updateWarn();
+  if(!tracked.length){tbl.style.display="none";em.style.display="block";pct.textContent="";return;}
+  em.style.display="none";tbl.style.display="table";
+  for(i=0;i<coins.length;i++)if(coins[i]&&coins[i]._trackedSym)bySym[coins[i]._trackedSym]=coins[i];
+  
+  var todayKey=getDayKey(Date.now());
+  var marketAge = now - marketLastUpdate;
+  var mDot = (marketAge < FRESH_WINDOW && marketLastUpdate>0) ? "fresh" : (marketLastUpdate>0 ? "partial" : "loading");
+  
+  for(i=0;i<tracked.length;i++){
+    sym=tracked[i];c=bySym[sym];
+    if(c){
+      var id=c.id;
+      var cachedHist=histData[id];
+      var hp={}, localPct=false;
+      
+      // ✅ Cálculo local si hay histórico válido del día
+      if(cachedHist && cachedHist.dayKey===todayKey && cachedHist.prices){
+        hp=computePercentsLocal(c, cachedHist.prices);
+        localPct=true;
+        histReady++;
+      } else {
+        // Fallback API
+        hp.p24=getFallbackPct(c,"price_change_percentage_24h_in_currency");
+        hp.p7=getFallbackPct(c,"price_change_percentage_7d_in_currency");
+        hp.p29=getFallbackPct(c,"price_change_percentage_30d_in_currency");
+      }
+      
+      marketRows++;
+      var hDot = localPct ? "fresh" : (marketLastUpdate>0 ? "api" : "loading");
+      
+      h+='<tr><td><span class="sym">'+c.symbol.toUpperCase()+'</span><br><span class="name">'+c.name+'</span></td>';
+      h+='<td class="r mono"><span class="dot '+mDot+'"></span>'+fmtPrice(c.current_price)+'</td>';
+      h+='<td class="r mono '+pctClass(hp.p24)+'"><span class="dot '+hDot+'"></span>'+fmtPct(hp.p24)+'</td>';
+      h+='<td class="r mono '+pctClass(hp.p7)+'"><span class="dot '+hDot+'"></span>'+fmtPct(hp.p7)+'</td>';
+      h+='<td class="r mono '+pctClass(hp.p29)+'"><span class="dot '+hDot+'"></span>'+fmtPct(hp.p29)+'</td>';
+      h+='<td class="r muted"><span class="dot '+mDot+'"></span>'+fmtCap(c.market_cap)+'</td>';
+      h+='<td><button class="rm" onclick="removeCoin(\''+sym+'\')">&#10005;</button></td></tr>';
+    }else{
+      var label=unresolved.length&&listContains(unresolved,sym)?"Sin resolver":"⏳ Cargando...";
+      h+='<tr><td><span class="sym">'+sym.toUpperCase()+'</span><br><span class="name">'+label+'</span></td>';
+      h+='<td class="r mono muted"><span class="dot loading"></span>—</td>';
+      h+='<td class="r mono muted"><span class="dot loading"></span>—</td>';
+      h+='<td class="r mono muted"><span class="dot loading"></span>—</td>';
+      h+='<td class="r mono muted"><span class="dot loading"></span>—</td>';
+      h+='<td class="r muted"><span class="dot loading"></span>—</td>';
+      h+='<td><button class="rm" onclick="removeCoin(\''+sym+'\')">&#10005;</button></td></tr>';
+    }
+  }
+  tb.innerHTML=h;
+  if(!marketRows){pct.textContent=unresolved.length?"Símbolos sin resolver visibles para corrección.":"";}
+  else{
+    if(histReady===marketRows){pct.textContent="✅ Históricos válidos hoy. Cálculo local de % activo.";}
+    else if(histReady>0){pct.textContent="⏳ Calculando % local para "+histReady+" monedas. Resto vía API (🟠).";}
+    else{pct.textContent="⏳ Esperando históricos para cálculo preciso...";}
+  }
+}
+
+function removeCoin(sym){sym=normalizeSym(sym);tracked=tracked.filter(function(t){return t!==sym;});storeTracked(false);localStorage.removeItem("crypto_cache_v3");triggerRefresh();}
+function triggerSearch(){var v=document.getElementById("search").value;if(v.length<2){alert("Escribe al menos 2 caracteres");return;}doSearch(v);}
+function doSearch(q){
+  var x=new XMLHttpRequest();
+  x.open("GET","https://api.coingecko.com/api/v3/search?query="+encodeURIComponent(q)+"&_cb="+Date.now());
+  x.setRequestHeader("Cache-Control","no-cache, no-store, must-revalidate");x.timeout=10000;
+  x.onload=function(){if(x.status===200){try{var d=JSON.parse(x.responseText);var list=(d.coins||[]).slice(0,8);var sg=document.getElementById("sug"),h="",i,c,sym,added;for(i=0;i<list.length;i++){c=list[i];sym=normalizeSym(c.symbol);if(sym)s2i[sym]=c.id;added=listContains(tracked,sym);if(added){h+='<div class="added">'+c.symbol.toUpperCase()+' - '+c.name+' &#10003;</div>';}else{h+='<div onclick="addCoin(\''+sym+'\',\''+c.id+'\')"><b>'+c.symbol.toUpperCase()+'</b> <span style="color:#999">'+c.name+'</span></div>';}}if(!h)h='<div class="muted">Sin resultados</div>';sg.innerHTML=h;sg.style.display="block";saveMappings();}catch(e){showError("Error en búsqueda");}}else{showError("Error HTTP "+x.status+" al buscar");}};
+  x.onerror=function(){showError("Error de conexión al buscar");};x.ontimeout=function(){showError("Timeout al buscar");};x.send();
+}
+function addCoin(sym,explicitId){sym=normalizeSym(sym);if(!sym)return;if(explicitId){s2i[sym]=explicitId;saveMappings();}if(!listContains(tracked,sym))tracked.push(sym);storeTracked(false);localStorage.removeItem("crypto_cache_v3");document.getElementById("search").value="";document.getElementById("sug").style.display="none";triggerRefresh();}
+function toggleCfg(){var p=document.getElementById("cfgPanel");p.style.display=p.style.display==="block"?"none":"block";updateUrlDisplay();}
+function copyUrl(){var url=location.href;try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url);showMsg("URL copiada");return;}}catch(e){}prompt("Copia esta URL:",url);}
+function resetDefault(){tracked=DEFAULT_SYMS.slice();histData={};unresolved=[];marketLastUpdate=0;localStorage.removeItem("crypto_cache_v3");storeTracked(false);triggerRefresh();showMsg("Lista restaurada");}
+function exportCfg(){if(!tracked.length){alert("No hay monedas");return;}var data=JSON.stringify({coins:tracked,date:new Date().toISOString()},null,2);try{var blob=new Blob([data],{type:"application/json"});var url=URL.createObjectURL(blob);var a=document.createElement("a");a.href=url;a.download="crypto_config.json";document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);showMsg("Exportado");}catch(e){try{var w=window.open("","_blank");if(w){w.document.write("<pre>"+data+"</pre>");showMsg("Texto en nueva ventana");return;}}catch(e2){}prompt("Copia este JSON:",data);}}
+function importCfg(input){if(!input.files||!input.files[0])return;try{var reader=new FileReader();reader.onload=function(e){try{var data=JSON.parse(e.target.result);var imp=uniqueSyms(data.coins||data);if(imp&&imp.length){tracked=imp;histData={};unresolved=[];marketLastUpdate=0;localStorage.removeItem("crypto_cache_v3");storeTracked(false);triggerRefresh();showMsg("Importado: "+imp.length+" monedas");}else{alert("Archivo no válido.");}}catch(ex){alert("JSON inválido.");}};reader.readAsText(input.files[0]);}catch(e){alert("Tu navegador no soporta lectura de archivos.");}input.value="";}
+
+document.onclick=function(e){var s=document.getElementById("sug"),inp=document.getElementById("search");if(!s||!inp)return;if(e.target!==s&&e.target!==inp&&!s.contains(e.target))s.style.display="none";};
+if(window.addEventListener){window.addEventListener("hashchange",function(){if(selfHash)return;var fromUrl=readFromUrl();if(fromUrl&&fromUrl.length)tracked=fromUrl;else load();histData={};unresolved=[];marketLastUpdate=0;storeTracked(true);triggerRefresh();});}
+
+// ✅ INICIO INSTANTÁNEO
+load();storeTracked(false);triggerRefresh();setInterval(triggerRefresh,60000);
+</script>
+</body>
+</html>
