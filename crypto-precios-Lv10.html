@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cripto Precios v10</title>
+<style>
+/* =========================================================
+   ESTILOS GENERALES — Compatibles con Opera Mini (sin flex,
+   sin animaciones complejas, sin border-radius pesado)
+   ========================================================= */
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:monospace,sans-serif;background:#111;color:#eee;padding:8px;font-size:13px}
+h1{font-size:16px;margin-bottom:4px}
+.sub{color:#888;font-size:11px;margin-bottom:10px}
+input[type=text]{width:100%;padding:6px;background:#222;color:#eee;border:1px solid #444;font-family:monospace;font-size:13px;margin-bottom:4px}
+.btn{background:#222;color:#ccc;border:1px solid #444;padding:6px 12px;cursor:pointer;font-family:monospace;font-size:12px;display:inline-block}
+.btn-green{color:#4a4;border-color:#4a4}
+.btn-red{color:#f44;border-color:#f44}
+.btn-full{width:100%;text-align:center;margin-bottom:4px}
+.suggestions{background:#222;border:1px solid #444;max-height:150px;overflow:auto;display:none}
+.suggestions div{padding:6px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid #333}
+.suggestions .added{color:#666;cursor:default}
+.suggestions .muted{color:#888}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{text-align:left;color:#888;font-size:11px;font-weight:normal;padding:4px 2px;border-bottom:1px solid #333}
+th.r,td.r{text-align:right}
+td{padding:6px 2px;border-bottom:1px solid #222;font-size:12px;vertical-align:top}
+.sym{font-weight:bold;color:#fff}
+.name{color:#888;font-size:10px}
+/* === Colores semánticos: alza verde, baja rojo === */
+.up{color:#4c4}
+.dn{color:#f44}
+/* === Máximo de hoy AZUL · Mínimo de hoy NARANJA === */
+.hi{color:#4a9eff}
+.lo{color:#f90}
+.mono{font-family:monospace}
+.muted{color:#777}
+.rm{background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:2px 4px}
+.foot{text-align:center;margin-top:12px;border-top:1px solid #333;padding-top:8px}
+.foot button{color:#4a4;background:none;border:none;cursor:pointer;font-family:monospace;font-size:12px;text-decoration:underline}
+.foot p{color:#666;font-size:10px;margin-top:4px}
+.cfg{margin:6px 0;font-size:11px}
+.empty{text-align:center;color:#888;padding:20px 0}
+.loading{text-align:center;color:#888;padding:30px 0}
+.cfgpanel{display:none;margin-top:6px;padding:6px;border:1px solid #333;background:#1a1a1a}
+.cfgrow{margin-bottom:6px}
+.msg{color:#4a4;font-size:11px;margin:4px 0}
+.err{background:#2a1a1a;border:1px solid #633;color:#f88;padding:6px;margin:6px 0;font-size:11px}
+.warn{background:#2a2a1a;border:1px solid #663;color:#fc8;padding:6px;margin:6px 0;font-size:11px}
+.dl{color:#888;font-style:italic;font-size:10px}
+.legend{text-align:center;margin-top:6px;font-size:10px;color:#888}
+.legend span{margin:0 6px;white-space:nowrap}
+.sw{display:inline-block;width:8px;height:8px;margin-right:3px;vertical-align:middle}
+.sw-hi{background:#4a9eff}
+.sw-lo{background:#f90}
+.sw-up{background:#4c4}
+.sw-dn{background:#f44}
+</style>
+</head>
+<body>
+
+<!-- =========================================================
+     CABECERA Y ESTADO DE ACTUALIZACIÓN
+     ========================================================= -->
+<h1>📊 Crypto Prices</h1>
+<p class="sub">v10 · CoinGecko · Variaciones 00:00 UTC · Última: <span id="time">--:--:--</span> <span id="badge"></span></p>
+
+<!-- =========================================================
+     BUSCADOR DE CRIPTOMONEDAS
+     ========================================================= -->
+<div>
+  <input type="text" id="search" placeholder="Buscar: btc, bnb, sol...">
+  <button class="btn btn-green btn-full" onclick="triggerSearch()">🔍 Buscar</button>
+</div>
+<div class="suggestions" id="sug"></div>
+
+<!-- =========================================================
+     PANEL DE CONFIGURACIÓN (lista guardada en URL/local)
+     ========================================================= -->
+<div class="cfg">
+  <button class="btn btn-full" onclick="toggleCfg()">💾 Configuraciones ▼</button>
+  <div id="cfgPanel" class="cfgpanel">
+    <p style="color:#aaa;font-size:11px;margin-bottom:6px">Lista guardada en navegador y URL.</p>
+    <div class="cfgrow"><button class="btn btn-green btn-full" onclick="copyUrl()">📋 Copiar URL</button></div>
+    <div class="cfgrow"><button class="btn btn-red btn-full" onclick="resetDefault()">↻ Restaurar por defecto</button></div>
+    <div id="cfgMsg" class="msg"></div>
+  </div>
+</div>
+
+<!-- =========================================================
+     ÁREA DE MENSAJES Y TABLA DE RESULTADOS
+     Columnas de variación:
+       Hoy    = (Actual / Precio 00:00 UTC de hoy − 1) × 100
+       Semana = (Actual / Precio 00:00 UTC del lunes − 1) × 100
+       Mes    = (Actual / Precio 00:00 UTC del día 1 − 1) × 100
+     ========================================================= -->
+<div id="error"></div>
+<div id="warn"></div>
+<div id="loading" class="loading">Cargando precios...</div>
+
+<table id="tbl" style="display:none">
+  <thead>
+    <tr>
+      <th>Moneda</th>
+      <th class="r">Precio</th>
+      <th class="r" style="color:#4a9eff">Máx</th>
+      <th class="r" style="color:#f90">Mín</th>
+      <th class="r" title="Desde 00:00 UTC de hoy">Hoy%</th>
+      <th class="r" title="Desde 00:00 UTC del lunes">Semana%</th>
+      <th class="r" title="Desde 00:00 UTC del día 1 del mes">Mes%</th>
+      <th class="r">Cap.</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody id="tbody"></tbody>
+</table>
+
+<div id="empty" class="empty" style="display:none">
+  Agrega criptomonedas usando el campo de arriba.
+</div>
+
+<!-- =========================================================
+     PIE: refresh manual + leyenda de colores
+     ========================================================= -->
+<div class="foot">
+  <button onclick="triggerRefresh()">🔄 Actualizar ahora</button>
+  <div class="legend">
+    <span><span class="sw sw-hi"></span>Máx hoy</span>
+    <span><span class="sw sw-lo"></span>Mín hoy</span>
+    <span><span class="sw sw-up"></span>Alza</span>
+    <span><span class="sw sw-dn"></span>Baja</span>
+  </div>
+  <p>Datos: CoinGecko · Cálculo paralelo · Refresh: 60s</p>
+</div>
+
+<script>
+/* =========================================================
+   SECCIÓN 1 · CONFIGURACIÓN BASE Y MAPA DE SÍMBOLOS
+   - Lista por defecto y diccionario símbolo → id CoinGecko
+   ========================================================= */
+var DEFAULT_SYMS=["btc","eth","sol","doge","ada"];
+var s2i={"btc":"bitcoin","eth":"ethereum","sol":"solana","doge":"dogecoin","ada":"cardano","bnb":"binancecoin","xrp":"ripple","dot":"polkadot","avax":"avalanche-2","matic":"matic-network","link":"chainlink","uni":"uniswap","ltc":"litecoin","atom":"cosmos","xlm":"stellar","shib":"shiba-inu","trx":"tron","near":"near","apt":"aptos","sui":"sui","pepe":"pepe","arb":"arbitrum","op":"optimism","fil":"filecoin","ton":"the-open-network","etc":"ethereum-classic","hbar":"hedera-hashgraph","cro":"crypto-com-chain","vet":"vechain","algo":"algorand","aave":"aave","inj":"injective-protocol","rndr":"render-token","paxg":"pax-gold","usdc":"usd-coin","usdt":"tether","dai":"dai","busd":"binance-usd"};
+
+var tracked=[];      // Símbolos seguidos
+var coins=[];        // Datos de mercado actuales
+var hist={};         // Históricos por id: {id:{prices:[[ts,price]...], dayKey:"YYYY-MM-DD"}}
+var unresolved=[];   // Símbolos no resueltos
+var runId=0;         // Token de ejecución (cancelación)
+var selfHash=false;  // Flag para evitar loops de hashchange
+
+/* =========================================================
+   SECCIÓN 2 · UTILIDADES (sin ES6, compatible Opera Mini)
+   ========================================================= */
+function pad2(n){n=String(n);return n.length<2?"0"+n:n;}
+function fmtTime(d){return pad2(d.getHours())+":"+pad2(d.getMinutes())+":"+pad2(d.getSeconds());}
+function normalizeSym(v){if(v==null)return "";return String(v).toLowerCase().replace(/[^a-z0-9-]/g,"");}
+function uniqueSyms(list){var out=[],seen={},i,s;if(!list)return out;for(i=0;i<list.length;i++){s=normalizeSym(list[i]);if(s&&!seen[s]){seen[s]=1;out.push(s);}}return out;}
+function listContains(list,val){var i;for(i=0;i<list.length;i++)if(list[i]===val)return true;return false;}
+function fmtFixed(v,d){try{return Number(v).toFixed(d);}catch(e){return String(v);}}
+function fmtInt(v){var n=Number(v);if(!isFinite(n))return String(v);try{return n.toLocaleString("en-US");}catch(e){return String(Math.round(n));}}
+/* Reglas de decimales: ≥1 → 2 dec · <1 → 8 dec */
+function fmtPrice(p){var n=Number(p);if(!isFinite(n))return "—";if(n>=1)return "$"+fmtInt(fmtFixed(n,2));return "$"+fmtFixed(n,8);}
+function fmtCap(c){var n=Number(c);if(!isFinite(n))return "—";if(n>=1e12)return "$"+fmtFixed(n/1e12,1)+"T";if(n>=1e9)return "$"+fmtFixed(n/1e9,1)+"B";if(n>=1e6)return "$"+fmtFixed(n/1e6,1)+"M";return "$"+fmtInt(n);}
+function fmtPct(v){if(v==null||!isFinite(v))return "—";return (v>=0?"▲ ":"▼ ")+fmtFixed(Math.abs(v),2)+"%";}
+function pctClass(v){if(v==null||!isFinite(v))return "muted";return v>=0?"up":"dn";}
+
+/* =========================================================
+   SECCIÓN 3 · TIMESTAMPS DE REFERENCIA EN UTC
+   - Hoy:    00:00 UTC del día actual
+   - Semana: 00:00 UTC del lunes de la semana actual
+   - Mes:    00:00 UTC del día 1 del mes actual
+   Devuelve milisegundos Unix (no claves de día).
+   ========================================================= */
+function getTodayStartMs(){
+  var d=new Date();
+  return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());
+}
+function getWeekStartMs(){
+  /* getUTCDay(): 0=domingo, 1=lunes ... 6=sábado
+     Lunes como inicio: si hoy es lunes back=0; si domingo back=6 */
+  var d=new Date();
+  var day=d.getUTCDay();
+  var back=(day+6)%7;
+  var t=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());
+  return t-back*86400000;
+}
+function getMonthStartMs(){
+  var d=new Date();
+  return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1);
+}
+function getDayKey(ts){var d=new Date(ts||Date.now());return d.getUTCFullYear()+"-"+pad2(d.getUTCMonth()+1)+"-"+pad2(d.getUTCDate());}
+
+/* =========================================================
+   SECCIÓN 3.b · BÚSQUEDA DEL PRECIO MÁS CERCANO A UN TIMESTAMP
+   - La serie horaria/diaria de CoinGecko no garantiza un punto
+     exacto en 00:00 UTC; tomamos el más cercano dentro de ±12h.
+   ========================================================= */
+function findPriceNearTs(prices,targetMs){
+  if(!prices||!prices.length)return null;
+  var i,closest=null,minDiff=Infinity,diff;
+  for(i=0;i<prices.length;i++){
+    diff=Math.abs(prices[i][0]-targetMs);
+    if(diff<minDiff){minDiff=diff;closest=prices[i];}
+  }
+  /* Tolerancia ±12h para evitar lecturas erróneas */
+  if(closest&&minDiff<=12*3600000)return closest[1];
+  return null;
+}
+
+/* =========================================================
+   SECCIÓN 4 · PERSISTENCIA (URL hash + localStorage)
+   ========================================================= */
+function readFromUrl(){var h=location.hash||"";if(h.length<=1)return null;var s=h.substring(1);if(s.indexOf("c=")===0)s=s.substring(2);if(s.indexOf("coins=")===0)s=s.substring(6);if(!s)return [];return uniqueSyms(s.split(","));}
+function writeToUrl(){var hash=tracked.length?"#"+tracked.join(","):"";selfHash=true;try{if(window.history&&history.replaceState){history.replaceState(null,document.title,location.href.split("#")[0]+hash);}else{location.hash=tracked.join(",");}}catch(e){location.hash=tracked.join(",");}setTimeout(function(){selfHash=false;},150);}
+function loadMappings(){try{var raw=localStorage.getItem("crypto_sym_map_v2");if(!raw)return;var saved=JSON.parse(raw),k;for(k in saved)if(saved[k])s2i[normalizeSym(k)]=saved[k];}catch(e){}}
+function saveMappings(){try{localStorage.setItem("crypto_sym_map_v2",JSON.stringify(s2i));}catch(e){}}
+function storeTracked(skipUrl){tracked=uniqueSyms(tracked);try{localStorage.setItem("tracked_syms",JSON.stringify(tracked));}catch(e){}saveMappings();if(!skipUrl)writeToUrl();}
+function loadCache(){try{var d=JSON.parse(localStorage.getItem("crypto_cache_v6"));if(d){coins=d.c||[];hist=d.h||{};}}catch(e){}}
+function saveCache(){try{localStorage.setItem("crypto_cache_v6",JSON.stringify({c:coins,h:hist}));}catch(e){}}
+function load(){loadMappings();loadCache();var fromUrl=readFromUrl();if(fromUrl&&fromUrl.length){tracked=fromUrl;return;}try{var raw=localStorage.getItem("tracked_syms");if(raw){tracked=uniqueSyms(JSON.parse(raw));return;}}catch(e){}tracked=DEFAULT_SYMS.slice();}
+
+/* =========================================================
+   SECCIÓN 5 · MENSAJES E INDICADORES DE ESTADO
+   ========================================================= */
+function showMsg(t){var el=document.getElementById("cfgMsg");if(!el)return;el.innerHTML=t;setTimeout(function(){el.innerHTML="";},3000);}
+function clearError(){var el=document.getElementById("error");if(el)el.innerHTML="";}
+function showError(msg){var el=document.getElementById("error");if(!el)return;el.innerHTML='<div class="err">'+msg+'. <button onclick="triggerRefresh()" style="color:#f88;background:none;border:none;text-decoration:underline;cursor:pointer;font-family:monospace">Reintentar</button></div>';}
+function updateWarn(){var el=document.getElementById("warn");if(!el)return;if(unresolved.length){el.innerHTML='<div class="warn">Sin resolver: '+unresolved.join(", ")+'</div>';}else{el.innerHTML="";}}
+function setBadge(t){var b=document.getElementById("badge");if(b)b.innerHTML=t?" "+t:"";}
+
+/* =========================================================
+   SECCIÓN 6 · RESOLUCIÓN DE SÍMBOLOS (símbolo → id CoinGecko)
+   ========================================================= */
+function chooseBestCoin(list,sym){var i,c,exactSym=[],exactId=[];var symSearch=normalizeSym(sym);for(i=0;i<list.length;i++){c=list[i];if(normalizeSym(c.symbol)===symSearch)exactSym.push(c);if(normalizeSym(c.id)===symSearch)exactId.push(c);}var cand=(exactSym.length?exactSym:exactId);if(cand.length){cand.sort(function(a,b){return (a.market_cap_rank||999999)-(b.market_cap_rank||999999);});return cand[0];}return list.length===1?list[0]:null;}
+
+function resolveSymbol(sym,token,cb){
+  if(s2i[sym]){cb(s2i[sym]);return;}
+  var x=new XMLHttpRequest();
+  x.open("GET","https://api.coingecko.com/api/v3/search?query="+encodeURIComponent(sym)+"&_cb="+(+new Date()));
+  x.timeout=10000;
+  x.onload=function(){
+    if(token!==runId)return;
+    if(x.status===200){
+      try{var d=JSON.parse(x.responseText);var m=chooseBestCoin(d.coins||[],sym);
+        if(m){s2i[sym]=m.id;if(m.symbol)s2i[normalizeSym(m.symbol)]=m.id;saveMappings();cb(m.id);return;}
+      }catch(e){}
+    }
+    cb(null);
+  };
+  x.onerror=x.ontimeout=function(){if(token===runId)cb(null);};
+  x.send();
+}
+
+/* Resuelve TODOS los símbolos en paralelo */
+function resolveAllParallel(list,token,done){
+  var resolved={},missing=[],pending=list.length;
+  if(!pending){done(resolved,missing);return;}
+  var i;
+  for(i=0;i<list.length;i++){
+    (function(sym){
+      resolveSymbol(sym,token,function(id){
+        if(token!==runId)return;
+        if(id)resolved[sym]=id;else missing.push(sym);
+        pending--;
+        if(pending===0)done(resolved,missing);
+      });
+    })(list[i]);
+  }
+}
+
+/* =========================================================
+   SECCIÓN 7 · DATOS DE MERCADO (precio actual, máx/mín 24h, cap)
+   ========================================================= */
+function buildOrderedCoins(data,resolved){var byId={},ordered=[],i,c,sym,id;for(i=0;i<data.length;i++){c=data[i];byId[c.id]=c;if(c.symbol)s2i[normalizeSym(c.symbol)]=c.id;}saveMappings();for(i=0;i<tracked.length;i++){sym=tracked[i];id=resolved[sym];if(id&&byId[id]){c=byId[id];c._sym=sym;ordered.push(c);}}return ordered;}
+
+function fetchMarkets(resolved,missing,token,cb){
+  var ids=[],seen={},i,sym,id;
+  for(i=0;i<tracked.length;i++){sym=tracked[i];id=resolved[sym];if(id&&!seen[id]){seen[id]=1;ids.push(id);}}
+  unresolved=missing.slice();
+  if(!ids.length){clearError();render();cb(false);return;}
+  var x=new XMLHttpRequest();
+  x.open("GET","https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids="+ids.join(",")+"&order=market_cap_desc&sparkline=false&_cb="+(+new Date()));
+  x.timeout=15000;
+  x.onload=function(){
+    if(token!==runId)return;
+    if(x.status===200){
+      try{
+        var data=JSON.parse(x.responseText)||[];
+        if(data.length>0){coins=buildOrderedCoins(data,resolved);clearError();saveCache();}
+        document.getElementById("time").innerHTML=fmtTime(new Date());
+        render();cb(true);return;
+      }catch(e){showError("Respuesta inválida");}
+    }else{showError("Error HTTP "+x.status);}
+    render();cb(false);
+  };
+  x.onerror=function(){if(token===runId){showError("Error de conexión");render();cb(false);}};
+  x.ontimeout=function(){if(token===runId){showError("Timeout");render();cb(false);}};
+  x.send();
+}
+
+/* =========================================================
+   SECCIÓN 8 · DATOS HISTÓRICOS EN PARALELO
+   - Pide market_chart de 35 días para cubrir el inicio del mes
+   - CoinGecko: con days>1 entrega granularidad horaria, ideal
+     para localizar puntos cerca de 00:00 UTC
+   - Lanza TODAS las peticiones a la vez (paralelo total)
+   ========================================================= */
+function fetchHistoricalsParallel(token){
+  var todayKey=getDayKey(Date.now());
+  var queue=[],i;
+  for(i=0;i<coins.length;i++){
+    var h=hist[coins[i].id];
+    if(!h||h.dayKey!==todayKey)queue.push(coins[i]);
+  }
+  if(!queue.length){setBadge("");render();return;}
+  var total=queue.length,done=0;
+  setBadge("[hist 0/"+total+"]");
+
+  function spawn(coin){
+    var x=new XMLHttpRequest();
+    /* days=35 cubre el día 1 del mes incluso a fin de mes;
+       sin interval=daily → CoinGecko devuelve datos horarios */
+    x.open("GET","https://api.coingecko.com/api/v3/coins/"+encodeURIComponent(coin.id)+"/market_chart?vs_currency=usd&days=35&_cb="+(+new Date()));
+    x.timeout=15000;
+    x.onload=function(){
+      if(token!==runId)return;
+      if(x.status===200){
+        try{var d=JSON.parse(x.responseText);var pr=d.prices||[];
+          if(pr.length){hist[coin.id]={dayKey:todayKey,prices:pr,ts:+new Date()};saveCache();}
+        }catch(e){}
+      }
+      done++;setBadge(done<total?"[hist "+done+"/"+total+"]":"");render();
+    };
+    x.onerror=x.ontimeout=function(){if(token!==runId)return;done++;setBadge(done<total?"[hist "+done+"/"+total+"]":"");render();};
+    x.send();
+  }
+
+  /* === Lanzamiento simultáneo de todas las consultas === */
+  for(i=0;i<queue.length;i++)spawn(queue[i]);
+}
+
+/* =========================================================
+   SECCIÓN 9 · CÁLCULO DE VARIACIONES EN PARALELO
+   - Fórmula: (Actual * 100 / Histórico) - 100
+   - Referencias en UTC:
+       Hoy    → 00:00 UTC del día actual
+       Semana → 00:00 UTC del lunes de esta semana
+       Mes    → 00:00 UTC del día 1 del mes actual
+   ========================================================= */
+function computeVariations(coin){
+  var out={pToday:null,pWeek:null,pMonth:null};
+  var current=Number(coin.current_price);
+  var h=hist[coin.id];
+  if(!isFinite(current)||!h||!h.prices||!h.prices.length)return out;
+  var prices=h.prices;
+
+  /* === Lectura paralela de los tres puntos de referencia === */
+  var pT=findPriceNearTs(prices,getTodayStartMs());
+  var pW=findPriceNearTs(prices,getWeekStartMs());
+  var pM=findPriceNearTs(prices,getMonthStartMs());
+
+  /* === Cálculo de variaciones === */
+  if(pT!=null&&pT>0)out.pToday=(current*100/pT)-100;
+  if(pW!=null&&pW>0)out.pWeek =(current*100/pW)-100;
+  if(pM!=null&&pM>0)out.pMonth=(current*100/pM)-100;
+  return out;
+}
+
+/* =========================================================
+   SECCIÓN 10 · RENDER DE LA TABLA
+   - Una fila por símbolo seguido
+   - "Descargando..." si faltan datos
+   ========================================================= */
+function render(){
+  var tb=document.getElementById("tbody"),tbl=document.getElementById("tbl"),
+      em=document.getElementById("empty"),ld=document.getElementById("loading");
+  updateWarn();
+  if(!tracked.length){tbl.style.display="none";em.style.display="block";ld.style.display="none";return;}
+  em.style.display="none";ld.style.display="none";tbl.style.display="table";
+
+  var bySym={},i,c;
+  for(i=0;i<coins.length;i++)if(coins[i]&&coins[i]._sym)bySym[coins[i]._sym]=coins[i];
+
+  var h="";
+  for(i=0;i<tracked.length;i++){
+    var sym=tracked[i];
+    c=bySym[sym];
+    if(c){
+      var v=computeVariations(c);
+      var hi=c.high_24h,lo=c.low_24h;
+      h+='<tr>';
+      h+='<td><span class="sym">'+(c.symbol||sym).toUpperCase()+'</span><br><span class="name">'+(c.name||"")+'</span></td>';
+      h+='<td class="r mono">'+fmtPrice(c.current_price)+'</td>';
+      h+='<td class="r mono hi">'+fmtPrice(hi)+'</td>';
+      h+='<td class="r mono lo">'+fmtPrice(lo)+'</td>';
+      h+='<td class="r mono '+pctClass(v.pToday)+'">'+fmtPct(v.pToday)+'</td>';
+      h+='<td class="r mono '+pctClass(v.pWeek) +'">'+fmtPct(v.pWeek) +'</td>';
+      h+='<td class="r mono '+pctClass(v.pMonth)+'">'+fmtPct(v.pMonth)+'</td>';
+      h+='<td class="r muted">'+fmtCap(c.market_cap)+'</td>';
+      h+='<td><button class="rm" onclick="removeCoin(\''+sym+'\')">&#10005;</button></td>';
+      h+='</tr>';
+    }else{
+      var label=listContains(unresolved,sym)?"Sin resolver":"Descargando...";
+      h+='<tr>';
+      h+='<td><span class="sym">'+sym.toUpperCase()+'</span><br><span class="dl">'+label+'</span></td>';
+      h+='<td class="r muted">—</td><td class="r muted">—</td><td class="r muted">—</td>';
+      h+='<td class="r muted">—</td><td class="r muted">—</td><td class="r muted">—</td>';
+      h+='<td class="r muted">—</td>';
+      h+='<td><button class="rm" onclick="removeCoin(\''+sym+'\')">&#10005;</button></td>';
+      h+='</tr>';
+    }
+  }
+  tb.innerHTML=h;
+}
+
+/* =========================================================
+   SECCIÓN 11 · CICLO PRINCIPAL DE ACTUALIZACIÓN
+   1) Resolver símbolos en paralelo
+   2) Pedir mercados en lote
+   3) Pedir históricos en paralelo
+   4) Render reactivo en cada paso
+   ========================================================= */
+var lastRefresh=0;
+function triggerRefresh(){
+  var now=+new Date();
+  if(now-lastRefresh<1000)return;
+  lastRefresh=now;
+  var token=++runId;
+  tracked=uniqueSyms(tracked);
+  clearError();
+  if(!tracked.length){coins=[];hist={};unresolved=[];render();return;}
+  setBadge("[resolviendo...]");
+  document.getElementById("time").innerHTML=fmtTime(new Date());
+  resolveAllParallel(tracked.slice(),token,function(resolved,missing){
+    if(token!==runId)return;
+    setBadge("[mercado...]");
+    fetchMarkets(resolved,missing,token,function(ok){
+      if(token!==runId)return;
+      if(ok&&coins.length)fetchHistoricalsParallel(token);
+      else setBadge("");
+    });
+  });
+}
+
+/* =========================================================
+   SECCIÓN 12 · BÚSQUEDA Y GESTIÓN DE LISTA
+   ========================================================= */
+function triggerSearch(){var v=document.getElementById("search").value;if(v.length<2){alert("Escribe al menos 2 caracteres");return;}doSearch(v);}
+function doSearch(q){
+  var x=new XMLHttpRequest();
+  x.open("GET","https://api.coingecko.com/api/v3/search?query="+encodeURIComponent(q)+"&_cb="+(+new Date()));
+  x.timeout=10000;
+  x.onload=function(){
+    if(x.status===200){
+      try{
+        var d=JSON.parse(x.responseText);
+        var list=(d.coins||[]).slice(0,8),sg=document.getElementById("sug"),h="",i,c,sym,added;
+        for(i=0;i<list.length;i++){
+          c=list[i];sym=normalizeSym(c.symbol);
+          if(sym)s2i[sym]=c.id;
+          added=listContains(tracked,sym);
+          if(added){h+='<div class="added">'+c.symbol.toUpperCase()+' - '+c.name+' &#10003;</div>';}
+          else{h+='<div onclick="addCoin(\''+sym+'\',\''+c.id+'\')"><b>'+c.symbol.toUpperCase()+'</b> <span style="color:#999">'+c.name+'</span></div>';}
+        }
+        if(!h)h='<div class="muted">Sin resultados</div>';
+        sg.innerHTML=h;sg.style.display="block";saveMappings();
+      }catch(e){showError("Error en búsqueda");}
+    }else{showError("Error HTTP "+x.status);}
+  };
+  x.onerror=function(){showError("Error de conexión");};
+  x.ontimeout=function(){showError("Timeout en búsqueda");};
+  x.send();
+}
+function addCoin(sym,explicitId){sym=normalizeSym(sym);if(!sym)return;if(explicitId){s2i[sym]=explicitId;saveMappings();}if(!listContains(tracked,sym))tracked.push(sym);storeTracked(false);document.getElementById("search").value="";document.getElementById("sug").style.display="none";triggerRefresh();}
+function removeCoin(sym){sym=normalizeSym(sym);var out=[],i;for(i=0;i<tracked.length;i++)if(tracked[i]!==sym)out.push(tracked[i]);tracked=out;storeTracked(false);triggerRefresh();}
+
+/* =========================================================
+   SECCIÓN 13 · CONFIGURACIÓN UI (panel, copiar URL, reset)
+   ========================================================= */
+function toggleCfg(){var p=document.getElementById("cfgPanel");p.style.display=p.style.display==="block"?"none":"block";}
+function copyUrl(){var url=location.href;try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url);showMsg("URL copiada");return;}}catch(e){}prompt("Copia esta URL:",url);}
+function resetDefault(){tracked=DEFAULT_SYMS.slice();hist={};unresolved=[];storeTracked(false);triggerRefresh();showMsg("Lista restaurada");}
+
+/* =========================================================
+   SECCIÓN 14 · EVENTOS GLOBALES Y ARRANQUE
+   - Cierre de sugerencias al click fuera
+   - Hashchange para sincronía entre pestañas
+   - Auto-refresh cada 60s
+   ========================================================= */
+document.onclick=function(e){var s=document.getElementById("sug"),inp=document.getElementById("search");if(!s||!inp)return;var t=e.target||e.srcElement;if(t!==s&&t!==inp&&!(s.contains&&s.contains(t)))s.style.display="none";};
+window.onhashchange=function(){if(selfHash)return;var fromUrl=readFromUrl();if(fromUrl&&fromUrl.length)tracked=fromUrl;else load();hist={};unresolved=[];storeTracked(true);triggerRefresh();};
+
+load();
+storeTracked(false);
+triggerRefresh();
+setInterval(triggerRefresh,60000);
+</script>
+</body>
+</html>
